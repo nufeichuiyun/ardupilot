@@ -72,14 +72,14 @@ public:
     // settor to allow vehicle code to provide turn related param values to this library (should be updated regularly)
     void set_turn_params(float turn_max_g, float turn_radius, bool pivot_possible);
 
-    // set default overshoot (used for sailboats)
-    void set_default_overshoot(float overshoot);
-
     // accessors for parameter values
     float get_default_speed() const { return _speed_max; }
     float get_radius() const { return _radius; }
-    float get_overshoot() const { return _overshoot; }
     float get_pivot_rate() const { return _pivot_rate; }
+
+    // calculate stopping location using current position and attitude controller provided maximum deceleration
+    // returns true on success, false on failure
+    bool get_stopping_location(Location& stopping_loc) WARN_IF_UNUSED;
 
     // parameter var table
     static const struct AP_Param::GroupInfo var_info[];
@@ -100,10 +100,6 @@ private:
     // relies on update_distance_and_bearing_to_destination and update_steering being run so these internal members
     // have been updated: _wp_bearing_cd, _cross_track_error, _distance_to_destination
     void update_desired_speed(float dt);
-
-    // calculate stopping location using current position and attitude controller provided maximum deceleration
-    // returns true on success, false on failure
-    bool get_stopping_location(Location& stopping_loc) WARN_IF_UNUSED;
 
     // returns true if vehicle should pivot turn at next waypoint
     bool use_pivot_steering_at_next_WP(float yaw_error_cd) const;

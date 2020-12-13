@@ -437,15 +437,15 @@ void ModeAuto::exit_mission()
     // send message
     gcs().send_text(MAV_SEVERITY_NOTICE, "Mission Complete");
 
-    if (g2.mis_done_behave == MIS_DONE_BEHAVE_LOITER && rover.set_mode(rover.mode_loiter, MODE_REASON_MISSION_END)) {
+    if (g2.mis_done_behave == MIS_DONE_BEHAVE_LOITER && start_loiter()) {
         return;
     }
 
-    if (g2.mis_done_behave == MIS_DONE_BEHAVE_ACRO && rover.set_mode(rover.mode_acro, MODE_REASON_MISSION_END)) {
+    if (g2.mis_done_behave == MIS_DONE_BEHAVE_ACRO && rover.set_mode(rover.mode_acro, ModeReason::MISSION_END)) {
         return;
     }
 
-    rover.set_mode(rover.mode_hold, MODE_REASON_MISSION_END);
+    start_stop();
 }
 
 // verify_command_callback - callback function called from ap-mission at 10hz or higher when a command is being run

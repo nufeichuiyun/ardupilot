@@ -233,6 +233,7 @@ public:
      * timeStamp_ms is the time when the rotation was last measured (msec)
      * posOffset is the XYZ body frame position of the wheel hub (m)
      * radius is the effective rolling radius of the wheel (m)
+     * this should not be called at more than the EKF's update rate (50hz or 100hz)
     */
     void writeWheelOdom(float delAng, float delTime, uint32_t timeStamp_ms, const Vector3f &posOffset, float radius);
 
@@ -447,6 +448,8 @@ private:
     AP_Float _visOdmVelErrMin;      // Observation 1-STD velocity error assumed for visual odometry sensor at highest reported quality (m/s)
     AP_Float _wencOdmVelErr;        // Observation 1-STD velocity error assumed for wheel odometry sensor (m/s)
     AP_Int8  _flowUse;              // Controls if the optical flow data is fused into the main navigation estimator and/or the terrain estimator.
+    AP_Float _hrt_filt_freq;        // frequency of output observer height rate complementary filter in Hz
+    AP_Int16 _mag_ef_limit;         // limit on difference between WMM tables and learned earth field.
 
 // Possible values for _flowUse
 #define FLOW_USE_NONE    0
@@ -495,7 +498,7 @@ private:
 
     // time of last lane switch
     uint32_t lastLaneSwitch_ms;
-    
+
     struct {
         uint32_t last_function_call;  // last time getLastYawYawResetAngle was called
         bool core_changed;            // true when a core change happened and hasn't been consumed, false otherwise

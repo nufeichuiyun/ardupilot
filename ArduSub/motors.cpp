@@ -9,6 +9,10 @@ void Sub::enable_motor_output()
 // motors_output - send output to motors library which will adjust and send to ESCs and servos
 void Sub::motors_output()
 {
+    // Motor detection mode controls the thrusters directly
+    if (control_mode == MOTOR_DETECT){
+        return;
+    }
     // check if we are performing the motor test
     if (ap.motor_test) {
         verify_motor_test();
@@ -28,7 +32,7 @@ bool Sub::init_motor_test()
     // Ten second cooldown period required with no do_set_motor requests required
     // after failure.
     if (tnow < last_do_motor_test_fail_ms + 10000 && last_do_motor_test_fail_ms > 0) {
-        gcs().send_text(MAV_SEVERITY_CRITICAL, "10 second cool down required");
+        gcs().send_text(MAV_SEVERITY_CRITICAL, "10 second cooldown required after motor test");
         return false;
     }
 

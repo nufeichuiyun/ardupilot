@@ -94,12 +94,14 @@ const AP_Param::GroupInfo AP_Follow::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("_OFS", 7, AP_Follow, _offset, 0),
 
+#if !(APM_BUILD_TYPE(APM_BUILD_APMrover2))
     // @Param: _YAW_BEHAVE
     // @DisplayName: Follow yaw behaviour
     // @Description: Follow yaw behaviour
     // @Values: 0:None,1:Face Lead Vehicle,2:Same as Lead vehicle,3:Direction of Flight
     // @User: Standard
     AP_GROUPINFO("_YAW_BEHAVE", 8, AP_Follow, _yaw_behave, 1),
+#endif
 
     // @Param: _POS_P
     // @DisplayName: Follow position error P gain
@@ -109,12 +111,14 @@ const AP_Param::GroupInfo AP_Follow::var_info[] = {
     // @User: Standard
     AP_SUBGROUPINFO(_p_pos, "_POS_", 9, AP_Follow, AC_P),
 
+#if !(APM_BUILD_TYPE(APM_BUILD_APMrover2)) 
     // @Param: _ALT_TYPE
     // @DisplayName: Follow altitude type
     // @Description: Follow altitude type
     // @Values: 0:absolute, 1: relative
     // @User: Standard
     AP_GROUPINFO("_ALT_TYPE", 10, AP_Follow, _alt_type, AP_FOLLOW_ALTITUDE_TYPE_RELATIVE),
+#endif
 
     AP_GROUPEND
 };
@@ -128,6 +132,15 @@ AP_Follow::AP_Follow() :
         _p_pos(AP_FOLLOW_POS_P_DEFAULT)
 {
     AP_Param::setup_object_defaults(this, var_info);
+}
+
+// restore offsets to zero if necessary, should be called when vehicle exits follow mode
+void AP_Follow::clear_offsets_if_required()
+{
+    if (_offsets_were_zero) {
+        _offset = Vector3f();
+    }
+    _offsets_were_zero = false;
 }
 
 // get target's estimated location
@@ -342,16 +355,19 @@ void AP_Follow::init_offsets_if_required(const Vector3f &dist_vec_ned)
     if (!_offset.get().is_zero()) {
         return;
     }
+    _offsets_were_zero = true;
 
     float target_heading_deg;
     if ((_offset_type == AP_FOLLOW_OFFSET_TYPE_RELATIVE) && get_target_heading_deg(target_heading_deg)) {
         // rotate offsets from north facing to vehicle's perspective
         _offset = rotate_vector(-dist_vec_ned, -target_heading_deg);
+        gcs().send_text(MAV_SEVERITY_INFO, "Relative follow offset loaded");
     } else {
         // initialise offset in NED frame
         _offset = -dist_vec_ned;
         // ensure offset_type used matches frame of offsets saved
         _offset_type = AP_FOLLOW_OFFSET_TYPE_NED;
+        gcs().send_text(MAV_SEVERITY_INFO, "N-E-D follow offset loaded");
     }
 }
 

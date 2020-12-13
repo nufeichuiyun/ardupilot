@@ -588,6 +588,22 @@ const AP_Param::GroupInfo NavEKF3::var_info[] = {
     // @RebootRequired: True
     AP_GROUPINFO("FLOW_USE", 54, NavEKF3, _flowUse, FLOW_USE_DEFAULT),
 
+    // @Param: HRT_FILT
+    // @DisplayName: Height rate filter crossover frequency
+    // @Description: Specifies the crossover frequency of the complementary filter used to calculate the output predictor height rate derivative.
+    // @Range: 0.1 30.0
+    // @Units: Hz
+    // @RebootRequired: False
+    AP_GROUPINFO("HRT_FILT", 55, NavEKF3, _hrt_filt_freq, 2.0f),
+
+    // @Param: MAG_EF_LIM
+    // @DisplayName: EarthField error limit
+    // @Description: This limits the difference between the learned earth magnetic field and the earth field from the world magnetic model tables. A value of zero means to disable the use of the WMM tables.
+    // @User: Advanced
+    // @Range: 0 500
+    // @Units: mGauss
+    AP_GROUPINFO("MAG_EF_LIM", 56, NavEKF3, _mag_ef_limit, 50),
+
     AP_GROUPEND
 };
 
@@ -682,9 +698,10 @@ bool NavEKF3::InitialiseFilter(void)
             gcs().send_text(MAV_SEVERITY_CRITICAL, "NavEKF3: allocation failed");
             return false;
         }
+
+        // Call constructors on all cores
         for (uint8_t i = 0; i < num_cores; i++) {
-            //Call Constructors
-            new (&core[i]) NavEKF3_core();
+            new (&core[i]) NavEKF3_core(this);
         }
     }
 
@@ -694,7 +711,7 @@ bool NavEKF3::InitialiseFilter(void)
     bool core_setup_success = true;
     for (uint8_t core_index=0; core_index<num_cores; core_index++) {
         if (coreSetupRequired[core_index]) {
-            coreSetupRequired[core_index] = !core[core_index].setup_core(this, coreImuIndex[core_index], core_index);
+            coreSetupRequired[core_index] = !core[core_index].setup_core(coreImuIndex[core_index], core_index);
             if (coreSetupRequired[core_index]) {
                 core_setup_success = false;
             }
@@ -1110,14 +1127,14 @@ bool NavEKF3::getOriginLLH(int8_t instance, struct Location &loc) const
 // Returns false if the filter has rejected the attempt to set the origin
 bool NavEKF3::setOriginLLH(const Location &loc)
 {
+    if (!core) {
+        return false;
+    }
     if (_fusionModeGPS != 3) {
         // we don't allow setting of the EKF origin unless we are
         // flying in non-GPS mode. This is to prevent accidental set
         // of EKF origin with invalid position or height
         gcs().send_text(MAV_SEVERITY_WARNING, "EKF3 refusing set origin");
-        return false;
-    }
-    if (!core) {
         return false;
     }
     bool ret = false;
@@ -1532,7 +1549,7 @@ uint32_t NavEKF3::getLastVelNorthEastReset(Vector2f &vel) const
 const char *NavEKF3::prearm_failure_reason(void) const
 {
     if (!core) {
-        return nullptr;
+        return "no EKF3 cores";
     }
     for (uint8_t i = 0; i < num_cores; i++) {
         const char * failure = core[primary].prearm_failure_reason();

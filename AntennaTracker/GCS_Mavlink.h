@@ -18,8 +18,6 @@ protected:
 
     uint8_t sysid_my_gcs() const override;
 
-    bool set_mode(uint8_t mode) override;
-
     MAV_RESULT _handle_command_preflight_calibration_baro() override;
     MAV_RESULT handle_command_long_packet(const mavlink_command_long_t &packet) override;
 
@@ -44,7 +42,7 @@ private:
     void send_global_position_int() override;
 
     MAV_MODE base_mode() const override;
-    MAV_STATE system_status() const override;
+    MAV_STATE vehicle_system_status() const override;
 
     bool waypoint_receiving;
 };

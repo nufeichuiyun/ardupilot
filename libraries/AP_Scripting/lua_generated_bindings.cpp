@@ -1,6 +1,9 @@
 // auto generated bindings, don't manually edit
 #include "lua_generated_bindings.h"
 #include "lua_boxed_numerics.h"
+#include <SRV_Channel/SRV_Channel.h>
+#include <AP_SerialLED/AP_SerialLED.h>
+#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Relay/AP_Relay.h>
 #include <AP_Terrain/AP_Terrain.h>
@@ -389,6 +392,17 @@ static int Vector3f___sub(lua_State *L) {
     return 1;
 }
 
+static int Location_get_bearing(lua_State *L) {
+    binding_argcheck(L, 2);
+    Location * ud = check_Location(L, 1);
+    Location & data_2 = *check_Location(L, 2);
+    const float data = ud->get_bearing(
+            data_2);
+
+    lua_pushnumber(L, data);
+    return 1;
+}
+
 static int Location_get_vector_from_origin_NEU(lua_State *L) {
     binding_argcheck(L, 1);
     Location * ud = check_Location(L, 1);
@@ -466,11 +480,168 @@ const luaL_Reg Location_meta[] = {
     {"relative_alt", Location_relative_alt},
     {"lng", Location_lng},
     {"lat", Location_lat},
+    {"get_bearing", Location_get_bearing},
     {"get_vector_from_origin_NEU", Location_get_vector_from_origin_NEU},
     {"offset", Location_offset},
     {"get_distance", Location_get_distance},
     {NULL, NULL}
 };
+
+static int SRV_Channels_find_channel(lua_State *L) {
+    SRV_Channels * ud = SRV_Channels::get_singleton();
+    if (ud == nullptr) {
+        return luaL_argerror(L, 1, "SRV_Channels not supported on this firmware");
+    }
+
+    binding_argcheck(L, 2);
+    const lua_Integer raw_data_2 = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, ((raw_data_2 >= static_cast<int32_t>(SRV_Channel::k_none)) && (raw_data_2 <= static_cast<int32_t>(SRV_Channel::k_nr_aux_servo_functions-1))), 2, "argument out of range");
+    const SRV_Channel::Aux_servo_function_t data_2 = static_cast<SRV_Channel::Aux_servo_function_t>(raw_data_2);
+    uint8_t data_5003 = {};
+    const bool data = ud->find_channel(
+            data_2,
+            data_5003);
+
+    if (data) {
+        lua_pushinteger(L, data_5003);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
+static int AP_SerialLED_send(lua_State *L) {
+    AP_SerialLED * ud = AP_SerialLED::get_singleton();
+    if (ud == nullptr) {
+        return luaL_argerror(L, 1, "serialLED not supported on this firmware");
+    }
+
+    binding_argcheck(L, 2);
+    const lua_Integer raw_data_2 = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, ((raw_data_2 >= MAX(1, 0)) && (raw_data_2 <= MIN(16, UINT8_MAX))), 2, "argument out of range");
+    const uint8_t data_2 = static_cast<uint8_t>(raw_data_2);
+    ud->send(
+            data_2);
+
+    return 0;
+}
+
+static int AP_SerialLED_set_RGB(lua_State *L) {
+    AP_SerialLED * ud = AP_SerialLED::get_singleton();
+    if (ud == nullptr) {
+        return luaL_argerror(L, 1, "serialLED not supported on this firmware");
+    }
+
+    binding_argcheck(L, 6);
+    const lua_Integer raw_data_2 = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, ((raw_data_2 >= MAX(1, 0)) && (raw_data_2 <= MIN(16, UINT8_MAX))), 2, "argument out of range");
+    const uint8_t data_2 = static_cast<uint8_t>(raw_data_2);
+    const lua_Integer raw_data_3 = luaL_checkinteger(L, 3);
+    luaL_argcheck(L, ((raw_data_3 >= MAX(-1, INT8_MIN)) && (raw_data_3 <= MIN(INT8_MAX, INT8_MAX))), 3, "argument out of range");
+    const int8_t data_3 = static_cast<int8_t>(raw_data_3);
+    const lua_Integer raw_data_4 = luaL_checkinteger(L, 4);
+    luaL_argcheck(L, ((raw_data_4 >= MAX(0, 0)) && (raw_data_4 <= MIN(UINT8_MAX, UINT8_MAX))), 4, "argument out of range");
+    const uint8_t data_4 = static_cast<uint8_t>(raw_data_4);
+    const lua_Integer raw_data_5 = luaL_checkinteger(L, 5);
+    luaL_argcheck(L, ((raw_data_5 >= MAX(0, 0)) && (raw_data_5 <= MIN(UINT8_MAX, UINT8_MAX))), 5, "argument out of range");
+    const uint8_t data_5 = static_cast<uint8_t>(raw_data_5);
+    const lua_Integer raw_data_6 = luaL_checkinteger(L, 6);
+    luaL_argcheck(L, ((raw_data_6 >= MAX(0, 0)) && (raw_data_6 <= MIN(UINT8_MAX, UINT8_MAX))), 6, "argument out of range");
+    const uint8_t data_6 = static_cast<uint8_t>(raw_data_6);
+    ud->set_RGB(
+            data_2,
+            data_3,
+            data_4,
+            data_5,
+            data_6);
+
+    return 0;
+}
+
+static int AP_SerialLED_set_num_profiled(lua_State *L) {
+    AP_SerialLED * ud = AP_SerialLED::get_singleton();
+    if (ud == nullptr) {
+        return luaL_argerror(L, 1, "serialLED not supported on this firmware");
+    }
+
+    binding_argcheck(L, 3);
+    const lua_Integer raw_data_2 = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, ((raw_data_2 >= MAX(1, 0)) && (raw_data_2 <= MIN(16, UINT8_MAX))), 2, "argument out of range");
+    const uint8_t data_2 = static_cast<uint8_t>(raw_data_2);
+    const lua_Integer raw_data_3 = luaL_checkinteger(L, 3);
+    luaL_argcheck(L, ((raw_data_3 >= MAX(0, 0)) && (raw_data_3 <= MIN(AP_SERIALLED_MAX_LEDS, UINT8_MAX))), 3, "argument out of range");
+    const uint8_t data_3 = static_cast<uint8_t>(raw_data_3);
+    const bool data = ud->set_num_profiled(
+            data_2,
+            data_3);
+
+    lua_pushboolean(L, data);
+    return 1;
+}
+
+static int AP_SerialLED_set_num_neopixel(lua_State *L) {
+    AP_SerialLED * ud = AP_SerialLED::get_singleton();
+    if (ud == nullptr) {
+        return luaL_argerror(L, 1, "serialLED not supported on this firmware");
+    }
+
+    binding_argcheck(L, 3);
+    const lua_Integer raw_data_2 = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, ((raw_data_2 >= MAX(1, 0)) && (raw_data_2 <= MIN(16, UINT8_MAX))), 2, "argument out of range");
+    const uint8_t data_2 = static_cast<uint8_t>(raw_data_2);
+    const lua_Integer raw_data_3 = luaL_checkinteger(L, 3);
+    luaL_argcheck(L, ((raw_data_3 >= MAX(0, 0)) && (raw_data_3 <= MIN(AP_SERIALLED_MAX_LEDS, UINT8_MAX))), 3, "argument out of range");
+    const uint8_t data_3 = static_cast<uint8_t>(raw_data_3);
+    const bool data = ud->set_num_neopixel(
+            data_2,
+            data_3);
+
+    lua_pushboolean(L, data);
+    return 1;
+}
+
+static int AP_Vehicle_set_mode(lua_State *L) {
+    AP_Vehicle * ud = AP_Vehicle::get_singleton();
+    if (ud == nullptr) {
+        return luaL_argerror(L, 1, "vehicle not supported on this firmware");
+    }
+
+    binding_argcheck(L, 2);
+    const lua_Integer raw_data_2 = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, ((raw_data_2 >= MAX(0, 0)) && (raw_data_2 <= MIN(UINT8_MAX, UINT8_MAX))), 2, "argument out of range");
+    const uint8_t data_2 = static_cast<uint8_t>(raw_data_2);
+    const bool data = ud->set_mode(
+            data_2,
+            ModeReason::SCRIPTING);
+
+    lua_pushboolean(L, data);
+    return 1;
+}
+
+static int GCS_set_message_interval(lua_State *L) {
+    GCS * ud = GCS::get_singleton();
+    if (ud == nullptr) {
+        return luaL_argerror(L, 1, "gcs not supported on this firmware");
+    }
+
+    binding_argcheck(L, 4);
+    const lua_Integer raw_data_2 = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, ((raw_data_2 >= MAX(0, 0)) && (raw_data_2 <= MIN(MAVLINK_COMM_NUM_BUFFERS, UINT8_MAX))), 2, "argument out of range");
+    const uint8_t data_2 = static_cast<uint8_t>(raw_data_2);
+    const uint32_t raw_data_3 = *check_uint32_t(L, 3);
+    luaL_argcheck(L, ((raw_data_3 >= MAX(0U, 0U)) && (raw_data_3 <= MIN(UINT32_MAX, UINT32_MAX))), 3, "argument out of range");
+    const uint32_t data_3 = static_cast<uint32_t>(raw_data_3);
+    const lua_Integer raw_data_4 = luaL_checkinteger(L, 4);
+    luaL_argcheck(L, ((raw_data_4 >= MAX(-1, INT32_MIN)) && (raw_data_4 <= MIN(INT32_MAX, INT32_MAX))), 4, "argument out of range");
+    const int32_t data_4 = raw_data_4;
+    const MAV_RESULT &data = ud->set_message_interval(
+            data_2,
+            data_3,
+            data_4);
+
+    lua_pushinteger(L, data);
+    return 1;
+}
 
 static int GCS_send_text(lua_State *L) {
     GCS * ud = GCS::get_singleton();
@@ -663,7 +834,7 @@ static int RangeFinder_num_sensors(lua_State *L) {
 static int AP_Notify_play_tune(lua_State *L) {
     AP_Notify * ud = AP_Notify::get_singleton();
     if (ud == nullptr) {
-        return luaL_argerror(L, 1, "AP_Notify not supported on this firmware");
+        return luaL_argerror(L, 1, "notify not supported on this firmware");
     }
 
     binding_argcheck(L, 2);
@@ -1032,6 +1203,29 @@ static int AP_GPS_num_sensors(lua_State *L) {
     return 1;
 }
 
+static int AP_BattMonitor_get_cycle_count(lua_State *L) {
+    AP_BattMonitor * ud = AP_BattMonitor::get_singleton();
+    if (ud == nullptr) {
+        return luaL_argerror(L, 1, "battery not supported on this firmware");
+    }
+
+    binding_argcheck(L, 2);
+    const lua_Integer raw_data_2 = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, ((raw_data_2 >= MAX(0, 0)) && (raw_data_2 <= MIN(ud->num_instances(), UINT8_MAX))), 2, "argument out of range");
+    const uint8_t data_2 = static_cast<uint8_t>(raw_data_2);
+    uint16_t data_5003 = {};
+    const bool data = ud->get_cycle_count(
+            data_2,
+            data_5003);
+
+    if (data) {
+        lua_pushinteger(L, data_5003);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
 static int AP_BattMonitor_get_temperature(lua_State *L) {
     AP_BattMonitor * ud = AP_BattMonitor::get_singleton();
     if (ud == nullptr) {
@@ -1040,7 +1234,7 @@ static int AP_BattMonitor_get_temperature(lua_State *L) {
 
     binding_argcheck(L, 2);
     float data_5002 = {};
-    const lua_Integer raw_data_3 = luaL_checkinteger(L, 3);
+    const lua_Integer raw_data_3 = luaL_checkinteger(L, 2);
     luaL_argcheck(L, ((raw_data_3 >= MAX(0, 0)) && (raw_data_3 <= MIN(ud->num_instances(), UINT8_MAX))), 3, "argument out of range");
     const uint8_t data_3 = static_cast<uint8_t>(raw_data_3);
     const bool data = ud->get_temperature(
@@ -1127,7 +1321,7 @@ static int AP_BattMonitor_consumed_wh(lua_State *L) {
 
     binding_argcheck(L, 2);
     float data_5002 = {};
-    const lua_Integer raw_data_3 = luaL_checkinteger(L, 3);
+    const lua_Integer raw_data_3 = luaL_checkinteger(L, 2);
     luaL_argcheck(L, ((raw_data_3 >= MAX(0, 0)) && (raw_data_3 <= MIN(ud->num_instances(), UINT8_MAX))), 3, "argument out of range");
     const uint8_t data_3 = static_cast<uint8_t>(raw_data_3);
     const bool data = ud->consumed_wh(
@@ -1150,7 +1344,7 @@ static int AP_BattMonitor_consumed_mah(lua_State *L) {
 
     binding_argcheck(L, 2);
     float data_5002 = {};
-    const lua_Integer raw_data_3 = luaL_checkinteger(L, 3);
+    const lua_Integer raw_data_3 = luaL_checkinteger(L, 2);
     luaL_argcheck(L, ((raw_data_3 >= MAX(0, 0)) && (raw_data_3 <= MIN(ud->num_instances(), UINT8_MAX))), 3, "argument out of range");
     const uint8_t data_3 = static_cast<uint8_t>(raw_data_3);
     const bool data = ud->consumed_mah(
@@ -1173,7 +1367,7 @@ static int AP_BattMonitor_current_amps(lua_State *L) {
 
     binding_argcheck(L, 2);
     float data_5002 = {};
-    const lua_Integer raw_data_3 = luaL_checkinteger(L, 3);
+    const lua_Integer raw_data_3 = luaL_checkinteger(L, 2);
     luaL_argcheck(L, ((raw_data_3 >= MAX(0, 0)) && (raw_data_3 <= MIN(ud->num_instances(), UINT8_MAX))), 3, "argument out of range");
     const uint8_t data_3 = static_cast<uint8_t>(raw_data_3);
     const bool data = ud->current_amps(
@@ -1517,7 +1711,26 @@ static int AP_AHRS_get_roll(lua_State *L) {
     return 1;
 }
 
+const luaL_Reg SRV_Channels_meta[] = {
+    {"find_channel", SRV_Channels_find_channel},
+    {NULL, NULL}
+};
+
+const luaL_Reg AP_SerialLED_meta[] = {
+    {"send", AP_SerialLED_send},
+    {"set_RGB", AP_SerialLED_set_RGB},
+    {"set_num_profiled", AP_SerialLED_set_num_profiled},
+    {"set_num_neopixel", AP_SerialLED_set_num_neopixel},
+    {NULL, NULL}
+};
+
+const luaL_Reg AP_Vehicle_meta[] = {
+    {"set_mode", AP_Vehicle_set_mode},
+    {NULL, NULL}
+};
+
 const luaL_Reg GCS_meta[] = {
+    {"set_message_interval", GCS_set_message_interval},
     {"send_text", GCS_send_text},
     {NULL, NULL}
 };
@@ -1549,10 +1762,6 @@ const luaL_Reg AP_Notify_meta[] = {
     {NULL, NULL}
 };
 
-const luaL_Reg notify_meta[] = {
-    {NULL, NULL}
-};
-
 const luaL_Reg AP_GPS_meta[] = {
     {"first_unconfigured_gps", AP_GPS_first_unconfigured_gps},
     {"get_antenna_offset", AP_GPS_get_antenna_offset},
@@ -1578,6 +1787,7 @@ const luaL_Reg AP_GPS_meta[] = {
 };
 
 const luaL_Reg AP_BattMonitor_meta[] = {
+    {"get_cycle_count", AP_BattMonitor_get_cycle_count},
     {"get_temperature", AP_BattMonitor_get_temperature},
     {"overpower_detected", AP_BattMonitor_overpower_detected},
     {"has_failsafed", AP_BattMonitor_has_failsafed},
@@ -1651,12 +1861,14 @@ const struct userdata_meta userdata_fun[] = {
 };
 
 const struct userdata_meta singleton_fun[] = {
+    {"SRV_Channels", SRV_Channels_meta, NULL},
+    {"serialLED", AP_SerialLED_meta, NULL},
+    {"vehicle", AP_Vehicle_meta, NULL},
     {"gcs", GCS_meta, NULL},
     {"relay", AP_Relay_meta, NULL},
     {"terrain", AP_Terrain_meta, AP_Terrain_enums},
     {"rangefinder", RangeFinder_meta, NULL},
-    {"AP_Notify", AP_Notify_meta, NULL},
-    {"notify", notify_meta, NULL},
+    {"notify", AP_Notify_meta, NULL},
     {"gps", AP_GPS_meta, AP_GPS_enums},
     {"battery", AP_BattMonitor_meta, NULL},
     {"arming", AP_Arming_meta, NULL},
@@ -1702,11 +1914,13 @@ void load_generated_bindings(lua_State *L) {
 }
 
 const char *singletons[] = {
+    "SRV_Channels",
+    "serialLED",
+    "vehicle",
     "gcs",
     "relay",
     "terrain",
     "rangefinder",
-    "AP_Notify",
     "notify",
     "gps",
     "battery",

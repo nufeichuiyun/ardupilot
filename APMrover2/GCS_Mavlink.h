@@ -12,12 +12,8 @@ protected:
 
     uint32_t telem_delay() const override;
 
-    AP_AdvancedFailsafe *get_advanced_failsafe() const override;
-
     uint8_t sysid_my_gcs() const override;
     bool sysid_enforce() const override;
-
-    bool set_mode(uint8_t mode) override;
 
     MAV_RESULT _handle_command_preflight_calibration(const mavlink_command_long_t &packet) override;
     MAV_RESULT handle_command_int_packet(const mavlink_command_int_t &packet) override;
@@ -47,7 +43,7 @@ private:
     void packetReceived(const mavlink_status_t &status, const mavlink_message_t &msg) override;
 
     MAV_MODE base_mode() const override;
-    MAV_STATE system_status() const override;
+    MAV_STATE vehicle_system_status() const override;
 
     int16_t vfr_hud_throttle() const override;
 

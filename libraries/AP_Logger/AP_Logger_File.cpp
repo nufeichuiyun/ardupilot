@@ -83,10 +83,14 @@ void AP_Logger_File::Init()
     }
     bufsize *= 1024;
 
+    const uint32_t desired_bufsize = bufsize;
+
     // If we can't allocate the full size, try to reduce it until we can allocate it
     while (!_writebuf.set_size(bufsize) && bufsize >= _writebuf_chunk) {
-        hal.console->printf("AP_Logger_File: Couldn't set buffer size to=%u\n", (unsigned)bufsize);
-        bufsize >>= 1;
+        bufsize *= 0.9;
+    }
+    if (bufsize >= _writebuf_chunk && bufsize != desired_bufsize) {
+        hal.console->printf("AP_Logger: reduced buffer %u/%u\n", (unsigned)bufsize, (unsigned)desired_bufsize);
     }
 
     if (!_writebuf.get_size()) {
@@ -125,6 +129,12 @@ bool AP_Logger_File::log_exists(const uint16_t lognum) const
 
 void AP_Logger_File::periodic_1Hz()
 {
+    if (_rotate_pending && !logging_enabled()) {
+        _rotate_pending = false;
+        // handle log rotation once we stop logging
+        stop_logging();
+    }
+
     if (!io_thread_alive()) {
         if (io_thread_warning_decimation_counter == 0 && _initialised) {
             // we don't print this error unless we did initialise. When _initialised is set to true
@@ -1073,7 +1083,7 @@ void AP_Logger_File::vehicle_was_disarmed()
         // rotate our log.  Closing the current one and letting the
         // logging restart naturally based on log_disarmed should do
         // the trick:
-        stop_logging();
+        _rotate_pending = true;
     }
 }
 

@@ -67,7 +67,7 @@ uint32_t GCS_Tracker::custom_mode() const
     return tracker.control_mode;
 }
 
-MAV_STATE GCS_MAVLINK_Tracker::system_status() const
+MAV_STATE GCS_MAVLINK_Tracker::vehicle_system_status() const
 {
     if (tracker.control_mode == INITIALISING) {
         return MAV_STATE_CALIBRATING;
@@ -406,7 +406,7 @@ MAV_RESULT GCS_MAVLINK_Tracker::handle_command_long_packet(const mavlink_command
 
         // mavproxy/mavutil sends this when auto command is entered 
     case MAV_CMD_MISSION_START:
-        tracker.set_mode(AUTO, MODE_REASON_GCS_COMMAND);
+        tracker.set_mode(AUTO, ModeReason::GCS_COMMAND);
         return MAV_RESULT_ACCEPTED;
 
     default:
@@ -607,23 +607,6 @@ void Tracker::mavlink_delay_cb()
     logger.EnableWrites(true);
 }
 
-/*
-  set_mode() wrapper for MAVLink SET_MODE
- */
-bool GCS_MAVLINK_Tracker::set_mode(uint8_t mode)
-{
-    switch (mode) {
-    case AUTO:
-    case MANUAL:
-    case SCAN:
-    case SERVO_TEST:
-    case STOP:
-        tracker.set_mode((enum ControlMode)mode, MODE_REASON_GCS_COMMAND);
-        return true;
-    }
-    return false;
-}
-
 // send position tracker is using
 void GCS_MAVLINK_Tracker::send_global_position_int()
 {
@@ -644,14 +627,3 @@ void GCS_MAVLINK_Tracker::send_global_position_int()
         0,                        // Z speed cm/s (+ve Down)
         tracker.ahrs.yaw_sensor); // compass heading in 1/100 degree
 }
-
-
-/* dummy methods to avoid having to link against AP_Camera */
-void AP_Camera::control_msg(const mavlink_message_t &) {}
-void AP_Camera::configure(float, float, float, float, float, float, float) {}
-void AP_Camera::control(float, float, float, float, float, float) {}
-void AP_Camera::send_feedback(mavlink_channel_t chan) {}
-/* end dummy methods to avoid having to link against AP_Camera */
-
-// dummy method to avoid linking AFS
-bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate, const char *reason) {return false;}

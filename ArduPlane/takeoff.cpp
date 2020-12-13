@@ -169,7 +169,8 @@ void Plane::takeoff_calc_pitch(void)
     }
 
     if (aparm.stall_prevention != 0) {
-        if (mission.get_current_nav_cmd().id == MAV_CMD_NAV_TAKEOFF) {
+        if (mission.get_current_nav_cmd().id == MAV_CMD_NAV_TAKEOFF ||
+            control_mode == &mode_takeoff) {
             // during takeoff we want to prioritise roll control over
             // pitch. Apply a reduction in pitch demand if our roll is
             // significantly off. The aim of this change is to
@@ -269,7 +270,7 @@ void Plane::complete_auto_takeoff(void)
 {
 #if GEOFENCE_ENABLED == ENABLED
     if (g.fence_autoenable > 0) {
-        if (! geofence_set_enabled(true, AUTO_TOGGLED)) {
+        if (! geofence_set_enabled(true)) {
             gcs().send_text(MAV_SEVERITY_NOTICE, "Enable fence failed (cannot autoenable");
         } else {
             gcs().send_text(MAV_SEVERITY_INFO, "Fence enabled (autoenabled)");

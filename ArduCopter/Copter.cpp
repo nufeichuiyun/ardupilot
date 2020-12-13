@@ -107,7 +107,7 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     SCHED_TASK(read_rangefinder,      20,    100),
 #endif
 #if PROXIMITY_ENABLED == ENABLED
-    SCHED_TASK_CLASS(AP_Proximity,         &copter.g2.proximity,        update,         100,  50),
+    SCHED_TASK_CLASS(AP_Proximity,         &copter.g2.proximity,        update,         200,  50),
 #endif
 #if BEACON_ENABLED == ENABLED
     SCHED_TASK_CLASS(AP_Beacon,            &copter.g2.beacon,           update,         400,  50),
@@ -127,6 +127,9 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     SCHED_TASK(three_hz_loop,          3,     75),
     SCHED_TASK_CLASS(AP_ServoRelayEvents,  &copter.ServoRelayEvents,      update_events, 50,     75),
     SCHED_TASK_CLASS(AP_Baro,              &copter.barometer,           accumulate,      50,  90),
+#if AC_FENCE == ENABLED
+    SCHED_TASK_CLASS(AC_Fence,             &copter.fence,               update,          10, 100),
+#endif
 #if PRECISION_LANDING == ENABLED
     SCHED_TASK(update_precland,      400,     50),
 #endif
@@ -139,8 +142,10 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
     SCHED_TASK_CLASS(AP_Notify,            &copter.notify,              update,          50,  90),
     SCHED_TASK(one_hz_loop,            1,    100),
     SCHED_TASK(ekf_check,             10,     75),
+    SCHED_TASK(check_vibration,       10,     50),
     SCHED_TASK(gpsglitch_check,       10,     50),
     SCHED_TASK(landinggear_update,    10,     75),
+    SCHED_TASK(standby_update,        100,    75),
     SCHED_TASK(lost_vehicle_check,    10,     50),
     SCHED_TASK_CLASS(GCS,                  (GCS*)&copter._gcs,          update_receive, 400, 180),
     SCHED_TASK_CLASS(GCS,                  (GCS*)&copter._gcs,          update_send,    400, 550),
@@ -193,7 +198,9 @@ const AP_Scheduler::Task Copter::scheduler_tasks[] = {
 #ifdef USERHOOK_SUPERSLOWLOOP
     SCHED_TASK(userhook_SuperSlowLoop, 1,   75),
 #endif
+#if BUTTON_ENABLED == ENABLED
     SCHED_TASK_CLASS(AP_Button,            &copter.g2.button,           update,           5, 100),
+#endif
 #if STATS_ENABLED == ENABLED
     SCHED_TASK_CLASS(AP_Stats,             &copter.g2.stats,            update,           1, 100),
 #endif
@@ -243,6 +250,9 @@ void Copter::fast_loop()
 
 #if FRAME_CONFIG == HELI_FRAME
     update_heli_control_dynamics();
+    #if MODE_AUTOROTATE_ENABLED == ENABLED
+        heli_update_autorotation();
+    #endif
 #endif //HELI_FRAME
 
     // Inertial Nav
@@ -287,7 +297,7 @@ void Copter::rc_loop()
 void Copter::throttle_loop()
 {
     // update throttle_low_comp value (controls priority of throttle vs attitude control)
-    update_throttle_thr_mix();
+    update_throttle_mix();
 
     // check auto_armed status
     update_auto_armed();
@@ -302,6 +312,8 @@ void Copter::throttle_loop()
 
     // compensate for ground effect (if enabled)
     update_ground_effect_detector();
+
+    update_dynamic_notch();
 }
 
 // update_batt_compass - read battery and compass
@@ -323,7 +335,7 @@ void Copter::update_batt_compass(void)
 // should be run at 400hz
 void Copter::fourhundred_hz_logging()
 {
-    if (should_log(MASK_LOG_ATTITUDE_FAST)) {
+    if (should_log(MASK_LOG_ATTITUDE_FAST) && !copter.flightmode->logs_attitude()) {
         Log_Write_Attitude();
     }
 }
@@ -333,8 +345,11 @@ void Copter::fourhundred_hz_logging()
 void Copter::ten_hz_logging_loop()
 {
     // log attitude data if we're not already logging at the higher rate
-    if (should_log(MASK_LOG_ATTITUDE_MED) && !should_log(MASK_LOG_ATTITUDE_FAST)) {
+    if (should_log(MASK_LOG_ATTITUDE_MED) && !should_log(MASK_LOG_ATTITUDE_FAST) && !copter.flightmode->logs_attitude()) {
         Log_Write_Attitude();
+    }
+    // log EKF attitude data
+    if (should_log(MASK_LOG_ATTITUDE_MED) || should_log(MASK_LOG_ATTITUDE_FAST)) {
         Log_Write_EKF_POS();
     }
     if (should_log(MASK_LOG_MOTBATT)) {
@@ -382,8 +397,7 @@ void Copter::twentyfive_hz_logging()
         Log_Write_EKF_POS();
     }
 
-    // log IMU data if we're not already logging at the higher rate
-    if (should_log(MASK_LOG_IMU) && !should_log(MASK_LOG_IMU_RAW)) {
+    if (should_log(MASK_LOG_IMU)) {
         logger.Write_IMU();
     }
 #endif
@@ -391,6 +405,13 @@ void Copter::twentyfive_hz_logging()
 #if PRECISION_LANDING == ENABLED
     // log output
     Log_Write_Precland();
+#endif
+
+#if MODE_AUTOROTATE_ENABLED == ENABLED
+    if (should_log(MASK_LOG_ATTITUDE_MED) || should_log(MASK_LOG_ATTITUDE_FAST)) {
+        //update autorotation log
+        g2.arot.Log_Write_Autorotation();
+    }
 #endif
 }
 
@@ -448,6 +469,10 @@ void Copter::one_hz_loop()
 #endif
 
     AP_Notify::flags.flying = !ap.land_complete;
+
+    gcs().send_text(MAV_SEVERITY_CRITICAL,
+                     "Current altitude: %.1fm",
+                     copter.flightmode->get_alt_above_ground_cm()/100.0f);
 }
 
 // called at 50hz
@@ -587,7 +612,7 @@ void Copter::publish_osd_info()
 Copter::Copter(void)
     : logger(g.log_bitmask),
     flight_modes(&g.flight_mode1),
-    control_mode(STABILIZE),
+    control_mode(Mode::Number::STABILIZE),
     simple_cos_yaw(1.0f),
     super_simple_cos_yaw(1.0),
     land_accel_ef_filter(LAND_DETECTOR_ACCEL_LPF_CUTOFF),

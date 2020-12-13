@@ -99,27 +99,32 @@ bool inverse(float x[], float y[], uint16_t dim) WARN_IF_UNUSED;
  * 100 == centi.
  */
 template <typename T>
-float wrap_180(const T angle, float unit_mod = 1);
+T wrap_180(const T angle);
 
 /*
  * Wrap an angle in centi-degrees. See wrap_180().
  */
 template <typename T>
-auto wrap_180_cd(const T angle) -> decltype(wrap_180(angle, 100.f));
+T wrap_180_cd(const T angle);
 
 /*
  * Constrain an euler angle to be within the range: 0 to 360 degrees. The
  * second parameter changes the units. Default: 1 == degrees, 10 == dezi,
  * 100 == centi.
  */
-template <typename T>
-float wrap_360(const T angle, float unit_mod = 1);
+float wrap_360(const float angle);
+#ifdef ALLOW_DOUBLE_MATH_FUNCTIONS
+double wrap_360(const double angle);
+#endif
+int wrap_360(const int angle);
 
-/*
- * Wrap an angle in centi-degrees. See wrap_360().
- */
-template <typename T>
-auto wrap_360_cd(const T angle) -> decltype(wrap_360(angle, 100.f));
+int wrap_360_cd(const int angle);
+long wrap_360_cd(const long angle);
+float wrap_360_cd(const float angle);
+#ifdef ALLOW_DOUBLE_MATH_FUNCTIONS
+double wrap_360_cd(const double angle);
+#endif
+
 
 /*
   wrap an angle in radians to -PI ~ PI (equivalent to +- 180 degrees)
@@ -269,8 +274,11 @@ float rand_float(void);
 // generate a random Vector3f of size 1
 Vector3f rand_vec3f(void);
 
-// confirm a value is a valid octal value
-bool is_valid_octal(uint16_t octal) WARN_IF_UNUSED;
-
 // return true if two rotations are equal
 bool rotation_equal(enum Rotation r1, enum Rotation r2) WARN_IF_UNUSED;
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+// fill an array of float with NaN, used to invalidate memory in SITL
+void fill_nanf(float *f, uint16_t count);
+#endif
+

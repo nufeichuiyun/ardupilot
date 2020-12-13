@@ -21,7 +21,10 @@
 #include "AP_RangeFinder_Params.h"
 
 // Maximum number of range finder instances available on this platform
+#ifndef RANGEFINDER_MAX_INSTANCES
 #define RANGEFINDER_MAX_INSTANCES 10
+#endif
+
 #define RANGEFINDER_GROUND_CLEARANCE_CM_DEFAULT 10
 #define RANGEFINDER_PREARM_ALT_MAX_CM           200
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
@@ -73,6 +76,7 @@ public:
         RangeFinder_TYPE_UAVCAN = 24,
         RangeFinder_TYPE_BenewakeTFminiPlus = 25,
         RangeFinder_TYPE_Lanbao = 26,
+        RangeFinder_TYPE_BenewakeTF03 = 27,
     };
 
     enum RangeFinder_Function {

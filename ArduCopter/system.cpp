@@ -1,4 +1,5 @@
 #include "Copter.h"
+#include <AP_BLHeli/AP_BLHeli.h>
 
 /*****************************************************************************
 *   The init_ardupilot function processes everything we need for an in - air restart
@@ -68,6 +69,10 @@ void Copter::init_ardupilot()
     g2.gripper.init();
 #endif
 
+#if AC_FENCE == ENABLED
+    fence.init();
+#endif
+    
     // init winch and wheel encoder
     winch_init();
 
@@ -227,9 +232,7 @@ void Copter::init_ardupilot()
     startup_INS_ground();
 
 #ifdef ENABLE_SCRIPTING
-    if (!g2.scripting.init()) {
-        gcs().send_text(MAV_SEVERITY_ERROR, "Scripting failed to start");
-    }
+    g2.scripting.init();
 #endif // ENABLE_SCRIPTING
 
     // set landed flags
@@ -253,6 +256,8 @@ void Copter::init_ardupilot()
 
     // disable safety if requested
     BoardConfig.init_safety();
+
+    vehicle_setup();
 
     hal.console->printf("\nReady to FLY ");
 
@@ -279,6 +284,45 @@ void Copter::startup_INS_ground()
 
     // reset ahrs including gyro bias
     ahrs.reset();
+}
+
+// update the harmonic notch filter center frequency dynamically
+void Copter::update_dynamic_notch()
+{
+    const float ref_freq = ins.get_gyro_harmonic_notch_center_freq_hz();
+    const float ref = ins.get_gyro_harmonic_notch_reference();
+
+    if (is_zero(ref)) {
+        ins.update_harmonic_notch_freq_hz(ref_freq);
+        return;
+    }
+
+    switch (ins.get_gyro_harmonic_notch_tracking_mode()) {
+        case HarmonicNotch_UpdateThrottle: // throttle based tracking
+            // set the harmonic notch filter frequency approximately scaled on motor rpm implied by throttle
+            ins.update_harmonic_notch_freq_hz(ref_freq * MAX(1.0f, sqrtf(motors->get_throttle_out() / ref)));
+            break;
+
+#if RPM_ENABLED == ENABLED
+        case HarmonicNotch_UpdateRPM: // rpm sensor based tracking
+            if (rpm_sensor.healthy(0)) {
+                // set the harmonic notch filter frequency from the main rotor rpm
+                ins.update_harmonic_notch_freq_hz(MAX(ref_freq, rpm_sensor.get_rpm(0) * ref / 60.0f));
+            } else {
+                ins.update_harmonic_notch_freq_hz(ref_freq);
+            }
+            break;
+#endif
+#ifdef HAVE_AP_BLHELI_SUPPORT
+        case HarmonicNotch_UpdateBLHeli: // BLHeli based tracking
+            ins.update_harmonic_notch_freq_hz(MAX(ref_freq, AP_BLHeli::get_singleton()->get_average_motor_frequency_hz() * ref));
+            break;
+#endif
+        case HarmonicNotch_Fixed: // static
+        default:
+            ins.update_harmonic_notch_freq_hz(ref_freq);
+            break;
+    }
 }
 
 // position_ok - returns true if the horizontal absolute position is ok and home position is set
@@ -382,7 +426,7 @@ void Copter::update_auto_armed()
         // if motors are armed and throttle is above zero auto_armed should be true
         // if motors are armed and we are in throw mode, then auto_armed should be true
         } else if (motors->armed() && !ap.using_interlock) {
-            if(!ap.throttle_zero || control_mode == THROW) {
+            if(!ap.throttle_zero || control_mode == Mode::Number::THROW) {
                 set_auto_armed(true);
             }
         }
@@ -602,31 +646,6 @@ void Copter::allocate_motors(void)
         g.rc_speed.set_default(16000);
     }
     
-    if (upgrading_frame_params) {
-        // do frame specific upgrade. This is only done the first time we run the new firmware
-#if FRAME_CONFIG == HELI_FRAME
-        SRV_Channels::upgrade_motors_servo(Parameters::k_param_motors, 12, CH_1);
-        SRV_Channels::upgrade_motors_servo(Parameters::k_param_motors, 13, CH_2);
-        SRV_Channels::upgrade_motors_servo(Parameters::k_param_motors, 14, CH_3);
-        SRV_Channels::upgrade_motors_servo(Parameters::k_param_motors, 15, CH_4);
-#else
-        if (g2.frame_class == AP_Motors::MOTOR_FRAME_TRI) {
-            const AP_Param::ConversionInfo tri_conversion_info[] = {
-                { Parameters::k_param_motors, 32, AP_PARAM_INT16, "SERVO7_TRIM" },
-                { Parameters::k_param_motors, 33, AP_PARAM_INT16, "SERVO7_MIN" },
-                { Parameters::k_param_motors, 34, AP_PARAM_INT16, "SERVO7_MAX" },
-                { Parameters::k_param_motors, 35, AP_PARAM_FLOAT, "MOT_YAW_SV_ANGLE" },
-            };
-            // we need to use CONVERT_FLAG_FORCE as the SERVO7_* parameters will already be set from RC7_*
-            AP_Param::convert_old_parameters(tri_conversion_info, ARRAY_SIZE(tri_conversion_info), AP_Param::CONVERT_FLAG_FORCE);
-            const AP_Param::ConversionInfo tri_conversion_info_rev { Parameters::k_param_motors, 31, AP_PARAM_INT8,  "SERVO7_REVERSED" };
-            AP_Param::convert_old_parameter(&tri_conversion_info_rev, 1, AP_Param::CONVERT_FLAG_REVERSE | AP_Param::CONVERT_FLAG_FORCE);
-            // AP_MotorsTri was converted from having nested var_info to one level
-            AP_Param::convert_parent_class(Parameters::k_param_motors, motors, motors->var_info);
-        }
-#endif
-    }
-
     // upgrade parameters. This must be done after allocating the objects
     convert_pid_parameters();
 #if FRAME_CONFIG == HELI_FRAME

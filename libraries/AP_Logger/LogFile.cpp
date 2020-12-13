@@ -173,6 +173,7 @@ void AP_Logger::Write_GPS(uint8_t i, uint64_t time_us)
         hacc          : (uint16_t)MIN((hacc*100), UINT16_MAX),
         vacc          : (uint16_t)MIN((vacc*100), UINT16_MAX),
         sacc          : (uint16_t)MIN((sacc*100), UINT16_MAX),
+        yaw_accuracy  : yaw_accuracy_deg,
         have_vv       : (uint8_t)gps.have_vertical_velocity(i),
         sample_ms     : gps.last_message_time_ms(i),
         delta_ms      : gps.last_message_delta_time_ms(i)
@@ -487,8 +488,9 @@ void AP_Logger::Write_Power(void)
 }
 
 // Write an AHRS2 packet
-void AP_Logger::Write_AHRS2(AP_AHRS &ahrs)
+void AP_Logger::Write_AHRS2()
 {
+    const AP_AHRS &ahrs = AP::ahrs();
     Vector3f euler;
     struct Location loc;
     Quaternion quat;
@@ -513,8 +515,10 @@ void AP_Logger::Write_AHRS2(AP_AHRS &ahrs)
 }
 
 // Write a POS packet
-void AP_Logger::Write_POS(AP_AHRS &ahrs)
+void AP_Logger::Write_POS()
 {
+    const AP_AHRS &ahrs = AP::ahrs();
+
     Location loc;
     if (!ahrs.get_position(loc)) {
         return;
@@ -599,8 +603,10 @@ void AP_Logger::Write_Trigger(const Location &current_loc)
 }
 
 // Write an attitude packet
-void AP_Logger::Write_Attitude(AP_AHRS &ahrs, const Vector3f &targets)
+void AP_Logger::Write_Attitude(const Vector3f &targets)
 {
+    const AP_AHRS &ahrs = AP::ahrs();
+
     const struct log_Attitude pkt{
         LOG_PACKET_HEADER_INIT(LOG_ATTITUDE_MSG),
         time_us         : AP_HAL::micros64(),
@@ -643,7 +649,7 @@ void AP_Logger::Write_Current_instance(const uint64_t time_us,
     float temp;
     bool has_temp = battery.get_temperature(temp, battery_instance);
     float current, consumed_mah, consumed_wh;
-    if (!battery.current_amps(current)) {
+    if (!battery.current_amps(current, battery_instance)) {
         current = quiet_nanf();
     }
     if (!battery.consumed_mah(consumed_mah, battery_instance)) {
@@ -754,14 +760,15 @@ void AP_Logger::Write_Compass(uint64_t time_us)
 }
 
 // Write a mode packet.
-bool AP_Logger_Backend::Write_Mode(uint8_t mode, uint8_t reason)
+bool AP_Logger_Backend::Write_Mode(uint8_t mode, const ModeReason reason)
 {
+    static_assert(sizeof(ModeReason) <= sizeof(uint8_t), "Logging expects the ModeReason to fit in 8 bits");
     const struct log_Mode pkt{
         LOG_PACKET_HEADER_INIT(LOG_MODE_MSG),
         time_us  : AP_HAL::micros64(),
         mode     : mode,
         mode_num : mode,
-        mode_reason : reason
+        mode_reason : static_cast<uint8_t>(reason)
     };
     return WriteCriticalBlock(&pkt, sizeof(pkt));
 }
@@ -790,6 +797,43 @@ void AP_Logger::Write_ESC(uint8_t id, uint64_t time_us, int32_t rpm, uint16_t vo
     };
     WriteBlock(&pkt, sizeof(pkt));
 }
+
+/*
+  write servo status from CAN servo
+ */
+void AP_Logger::Write_ServoStatus(uint64_t time_us, uint8_t id, float position, float force, float speed, uint8_t power_pct)
+{
+    const struct log_CSRV pkt {
+        LOG_PACKET_HEADER_INIT(LOG_CSRV_MSG),
+        time_us     : time_us,
+        id          : id,
+        position    : position,
+        force       : force,
+        speed       : speed,
+        power_pct   : power_pct
+    };
+    WriteBlock(&pkt, sizeof(pkt));
+}
+
+/*
+  write ESC status from CAN ESC
+ */
+void AP_Logger::Write_ESCStatus(uint64_t time_us, uint8_t id, uint32_t error_count, float voltage, float current, float temperature, int32_t rpm, uint8_t power_pct)
+{
+    const struct log_CESC pkt {
+        LOG_PACKET_HEADER_INIT(LOG_CESC_MSG),
+        time_us     : time_us,
+        id          : id,
+        error_count : error_count,
+        voltage     : voltage,
+        current     : current,
+        temperature : temperature,
+        rpm         : rpm,
+        power_pct   : power_pct
+    };
+    WriteBlock(&pkt, sizeof(pkt));
+}
+
 
 // Write a Yaw PID packet
 void AP_Logger::Write_PID(uint8_t msg_type, const PID_Info &info)
@@ -921,7 +965,7 @@ void AP_Logger::Write_Beacon(AP_Beacon &beacon)
 void AP_Logger::Write_Proximity(AP_Proximity &proximity)
 {
     // exit immediately if not enabled
-    if (proximity.get_status() == AP_Proximity::Proximity_NotConnected) {
+    if (proximity.get_status() == AP_Proximity::Status::NotConnected) {
         return;
     }
 
@@ -988,12 +1032,13 @@ void AP_Logger::Write_OABendyRuler(bool active, float target_yaw, float margin, 
     WriteBlock(&pkt, sizeof(pkt));
 }
 
-void AP_Logger::Write_OADijkstra(uint8_t state, uint8_t curr_point, uint8_t tot_points, const Location &final_dest, const Location &oa_dest)
+void AP_Logger::Write_OADijkstra(uint8_t state, uint8_t error_id, uint8_t curr_point, uint8_t tot_points, const Location &final_dest, const Location &oa_dest)
 {
     struct log_OADijkstra pkt{
         LOG_PACKET_HEADER_INIT(LOG_OA_DIJKSTRA_MSG),
         time_us     : AP_HAL::micros64(),
         state       : state,
+        error_id    : error_id,
         curr_point  : curr_point,
         tot_points  : tot_points,
         final_lat   : final_dest.lat,

@@ -18,7 +18,7 @@ int8_t RC_Channels_Plane::flight_mode_channel_number() const
 
 bool RC_Channels_Plane::has_valid_input() const
 {
-    if (plane.failsafe.rc_failsafe) {
+    if (plane.rc_failsafe_active() || plane.failsafe.rc_failsafe) {
         return false;
     }
     if (plane.failsafe.throttle_counter != 0) {
@@ -33,7 +33,7 @@ void RC_Channel_Plane::do_aux_function_change_mode(const Mode::Number number,
     switch(ch_flag) {
     case HIGH: {
         // engage mode (if not possible we remain in current flight mode)
-        const bool success = plane.set_mode_by_number(number, MODE_REASON_TX_COMMAND);
+        const bool success = plane.set_mode_by_number(number, ModeReason::RC_COMMAND);
         if (plane.control_mode != &plane.mode_initializing) {
             if (success) {
                 AP_Notify::events.user_mode_change = 1;
@@ -113,6 +113,11 @@ void RC_Channel_Plane::do_aux_function(const aux_func_t ch_option, const aux_swi
     case AUX_FUNC::RTL:
         do_aux_function_change_mode(Mode::Number::RTL, ch_flag);
         break;
+
+    case AUX_FUNC::TAKEOFF:
+        do_aux_function_change_mode(Mode::Number::TAKEOFF, ch_flag);
+        break;
+
 
     default:
         RC_Channel::do_aux_function(ch_option, ch_flag);

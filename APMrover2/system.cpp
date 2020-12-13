@@ -60,6 +60,8 @@ void Rover::init_ardupilot()
     g2.gripper.init();
 #endif
 
+    g2.fence.init();
+
     // initialise notify system
     notify.init();
     notify_mode(control_mode);
@@ -148,7 +150,7 @@ void Rover::init_ardupilot()
     if (initial_mode == nullptr) {
         initial_mode = &mode_initializing;
     }
-    set_mode(*initial_mode, MODE_REASON_INITIALISED);
+    set_mode(*initial_mode, ModeReason::INITIALISED);
 
     // initialise rc channels
     rc().init();
@@ -171,7 +173,7 @@ void Rover::init_ardupilot()
 //*********************************************************************************
 void Rover::startup_ground(void)
 {
-    set_mode(mode_initializing, MODE_REASON_INITIALISED);
+    set_mode(mode_initializing, ModeReason::INITIALISED);
 
     gcs().send_text(MAV_SEVERITY_INFO, "<startup_ground> Ground start");
 
@@ -197,9 +199,7 @@ void Rover::startup_ground(void)
 #endif
 
 #ifdef ENABLE_SCRIPTING
-    if (!g2.scripting.init()) {
-        gcs().send_text(MAV_SEVERITY_ERROR, "Scripting failed to start");
-    }
+    g2.scripting.init();
 #endif // ENABLE_SCRIPTING
 
     // we don't want writes to the serial port to cause us to pause
@@ -238,7 +238,7 @@ void Rover::update_ahrs_flyforward()
     ahrs.set_fly_forward(flyforward);
 }
 
-bool Rover::set_mode(Mode &new_mode, mode_reason_t reason)
+bool Rover::set_mode(Mode &new_mode, ModeReason reason)
 {
     if (control_mode == &new_mode) {
         // don't switch modes if we are already in the correct mode.
@@ -273,6 +273,16 @@ bool Rover::set_mode(Mode &new_mode, mode_reason_t reason)
 
     notify_mode(control_mode);
     return true;
+}
+
+bool Rover::set_mode(const uint8_t new_mode, ModeReason reason)
+{
+    static_assert(sizeof(Mode::Number) == sizeof(new_mode), "The new mode can't be mapped to the vehicles mode number");
+    Mode *mode = rover.mode_from_mode_num((enum Mode::Number)new_mode);
+    if (mode == nullptr) {
+        return false;
+    }
+    return rover.set_mode(*mode, reason);
 }
 
 void Rover::startup_INS_ground(void)

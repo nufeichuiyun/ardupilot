@@ -58,6 +58,14 @@ int main(void)
     bool try_boot = false;
     uint32_t timeout = HAL_BOOTLOADER_TIMEOUT;
 
+#ifdef HAL_BOARD_AP_PERIPH_ZUBAXGNSS
+    // setup remapping register for ZubaxGNSS
+    uint32_t mapr = AFIO->MAPR;
+    mapr &= ~AFIO_MAPR_SWJ_CFG;
+    mapr |= AFIO_MAPR_SWJ_CFG_JTAGDISABLE;
+    AFIO->MAPR = mapr | AFIO_MAPR_CAN_REMAP_REMAP2 | AFIO_MAPR_SPI3_REMAP;
+#endif
+
 #ifndef NO_FASTBOOT
     enum rtc_boot_magic m = check_fast_reboot();
     if (stm32_was_watchdog_reset()) {
@@ -74,6 +82,16 @@ int main(void)
         try_boot = false;
         timeout = 10000;
         can_set_node_id(m & 0xFF);
+    }
+    can_check_update();
+    if (!can_check_firmware()) {
+        // bad firmware CRC, don't try and boot
+        timeout = 0;
+        try_boot = false;
+    } else if (timeout != 0) {
+        // fast boot for good firmware
+        try_boot = true;
+        timeout = 1000;
     }
 #endif
     

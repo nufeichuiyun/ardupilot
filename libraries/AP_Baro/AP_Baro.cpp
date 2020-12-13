@@ -33,6 +33,7 @@
 #include "AP_Baro_SITL.h"
 #include "AP_Baro_BMP085.h"
 #include "AP_Baro_BMP280.h"
+#include "AP_Baro_SPL06.h"
 #include "AP_Baro_HIL.h"
 #include "AP_Baro_KellerLD.h"
 #include "AP_Baro_MS5611.h"
@@ -160,7 +161,7 @@ const AP_Param::GroupInfo AP_Baro::var_info[] = {
     // @Param: PROBE_EXT
     // @DisplayName: External barometers to probe
     // @Description: This sets which types of external i2c barometer to look for. It is a bitmask of barometer types. The I2C buses to probe is based on GND_EXT_BUS. If GND_EXT_BUS is -1 then it will probe all external buses, otherwise it will probe just the bus number given in GND_EXT_BUS.
-    // @Bitmask: 0:BMP085,1:BMP280,2:MS5611,3:MS5607,4:MS5637,5:FBM320,6:DPS280,7:LPS25H,8:Keller,10:MS5837,11:BMP388
+    // @Bitmask: 0:BMP085,1:BMP280,2:MS5611,3:MS5607,4:MS5637,5:FBM320,6:DPS280,7:LPS25H,8:Keller,9:MS5837,10:BMP388
     // @Values: 1:BMP085,2:BMP280,4:MS5611,8:MS5607,16:MS5637,32:FBM320,64:DPS280,128:LPS25H,256:Keller,512:MS5837,1024:BMP388
     // @User: Advanced
     AP_GROUPINFO("PROBE_EXT", 14, AP_Baro, _baro_probe_ext, HAL_BARO_PROBE_EXT_DEFAULT),
@@ -692,6 +693,7 @@ void AP_Baro::_probe_i2c_barometers(void)
                                               std::move(GET_I2C_DEVICE(i, HAL_BARO_LPS25H_I2C_ADDR))));
         }
     }
+#if APM_BUILD_TYPE(APM_BUILD_ArduSub)
     if (probe & PROBE_LPS25H) {
         FOREACH_I2C_MASK(i,mask) {
             ADD_BACKEND(AP_Baro_KellerLD::probe(*this,
@@ -704,6 +706,7 @@ void AP_Baro::_probe_i2c_barometers(void)
                                               std::move(GET_I2C_DEVICE(i, HAL_BARO_MS5837_I2C_ADDR)), AP_Baro_MS56XX::BARO_MS5837));
         }
     }
+#endif
 }
 
 bool AP_Baro::should_log() const

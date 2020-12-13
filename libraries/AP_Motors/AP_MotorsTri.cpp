@@ -51,6 +51,11 @@ void AP_MotorsTri::init(motor_frame_class frame_class, motor_frame_type frame_ty
     // allow mapping of motor7
     add_motor_num(AP_MOTORS_CH_TRI_YAW);
 
+    // check for reverse tricopter
+    if (frame_type == MOTOR_FRAME_TYPE_PLUSREV) {
+        _pitch_reversed = true;
+    }
+
     // record successful initialisation if what we setup was the desired frame_class
     _flags.initialised_ok = (frame_class == MOTOR_FRAME_TRI);
 }
@@ -58,6 +63,13 @@ void AP_MotorsTri::init(motor_frame_class frame_class, motor_frame_type frame_ty
 // set frame class (i.e. quad, hexa, heli) and type (i.e. x, plus)
 void AP_MotorsTri::set_frame_class_and_type(motor_frame_class frame_class, motor_frame_type frame_type)
 {
+    // check for reverse tricopter
+    if (frame_type == MOTOR_FRAME_TYPE_PLUSREV) {
+        _pitch_reversed = true;
+    } else {
+        _pitch_reversed = false;
+    }
+
     _flags.initialised_ok = (frame_class == MOTOR_FRAME_TRI);
 }
 
@@ -153,6 +165,11 @@ void AP_MotorsTri::output_armed_stabilizing()
     throttle_thrust = get_throttle() * compensation_gain;
     throttle_avg_max = _throttle_avg_max * compensation_gain;
 
+    // check for reversed pitch
+    if (_pitch_reversed) {
+        pitch_thrust *= -1.0f;
+    }
+
     // calculate angle of yaw pivot
     _pivot_angle = safe_asin(yaw_thrust);
     if (fabsf(_pivot_angle) > radians(_yaw_servo_angle_max_deg)) {
@@ -238,10 +255,15 @@ void AP_MotorsTri::output_armed_stabilizing()
         }
     }
 
+    // determine throttle thrust for harmonic notch
+    const float throttle_thrust_best_plus_adj = throttle_thrust_best_rpy + thr_adj;
+    // compensation_gain can never be zero
+    _throttle_out = throttle_thrust_best_plus_adj / compensation_gain;
+
     // add scaled roll, pitch, constrained yaw and throttle for each motor
-    _thrust_right = throttle_thrust_best_rpy + thr_adj + rpy_scale * _thrust_right;
-    _thrust_left = throttle_thrust_best_rpy + thr_adj + rpy_scale * _thrust_left;
-    _thrust_rear = throttle_thrust_best_rpy + thr_adj + rpy_scale * _thrust_rear;
+    _thrust_right = throttle_thrust_best_plus_adj + rpy_scale * _thrust_right;
+    _thrust_left = throttle_thrust_best_plus_adj + rpy_scale * _thrust_left;
+    _thrust_rear = throttle_thrust_best_plus_adj + rpy_scale * _thrust_rear;
 
     // scale pivot thrust to account for pivot angle
     // we should not need to check for divide by zero as _pivot_angle is constrained to the 5deg ~ 80 deg range

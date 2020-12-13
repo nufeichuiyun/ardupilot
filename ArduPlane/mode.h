@@ -1,5 +1,7 @@
 #pragma once
 
+#include <AP_Param/AP_Param.h>
+#include <AP_Common/Location.h>
 #include <stdint.h>
 
 class Mode
@@ -12,7 +14,7 @@ public:
 
     // Auto Pilot modes
     // ----------------
-    enum Number {
+    enum Number : uint8_t {
         MANUAL        = 0,
         CIRCLE        = 1,
         STABILIZE     = 2,
@@ -25,6 +27,7 @@ public:
         AUTO          = 10,
         RTL           = 11,
         LOITER        = 12,
+        TAKEOFF       = 13,
         AVOID_ADSB    = 14,
         GUIDED        = 15,
         INITIALISING  = 16,
@@ -448,4 +451,32 @@ protected:
 
     bool _enter() override;
     void _exit() override;
+};
+
+
+class ModeTakeoff: public Mode
+{
+public:
+    ModeTakeoff();
+
+    Number mode_number() const override { return Number::TAKEOFF; }
+    const char *name() const override { return "TAKEOFF"; }
+    const char *name4() const override { return "TKOF"; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    // var_info for holding parameter information
+    static const struct AP_Param::GroupInfo var_info[];
+    
+protected:
+    AP_Int16 target_alt;
+    AP_Int16 target_dist;
+    AP_Int16 level_alt;
+    AP_Int8 level_pitch;
+
+    bool takeoff_started;
+    Location start_loc;
+
+    bool _enter() override;
 };

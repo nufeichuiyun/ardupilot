@@ -223,6 +223,7 @@ struct PACKED log_GPA {
     uint16_t hacc;
     uint16_t vacc;
     uint16_t sacc;
+    float    yaw_accuracy;
     uint8_t  have_vv;
     uint32_t sample_ms;
     uint16_t delta_ms;
@@ -940,6 +941,28 @@ struct PACKED log_Esc {
     uint16_t current_tot;
 };
 
+struct PACKED log_CSRV {
+    LOG_PACKET_HEADER;
+    uint64_t time_us;     
+    uint8_t id;
+    float position;
+    float force;
+    float speed;
+    uint8_t power_pct;
+};
+
+struct PACKED log_CESC {
+    LOG_PACKET_HEADER;
+    uint64_t time_us;     
+    uint8_t id;
+    uint32_t error_count;
+    float voltage;
+    float current;
+    float temperature;
+    int32_t rpm;
+    uint8_t power_pct;
+};
+
 struct PACKED log_AIRSPEED {
     LOG_PACKET_HEADER;
     uint64_t time_us;
@@ -1137,6 +1160,7 @@ struct PACKED log_Performance {
     uint32_t spi_count;
     uint32_t i2c_count;
     uint32_t i2c_isr_count;
+    uint32_t extra_loop_us;
 };
 
 struct PACKED log_SRTL {
@@ -1168,6 +1192,7 @@ struct PACKED log_OADijkstra {
     LOG_PACKET_HEADER;
     uint64_t time_us;
     uint8_t state;
+    uint8_t error_id;
     uint8_t curr_point;
     uint8_t tot_points;
     int32_t final_lat;
@@ -1221,10 +1246,10 @@ struct PACKED log_Arm_Disarm {
 #define ESC_UNITS "sqvAO-"
 #define ESC_MULTS "FBBBB-"
 
-#define GPA_LABELS "TimeUS,VDop,HAcc,VAcc,SAcc,VV,SMS,Delta"
-#define GPA_FMT   "QCCCCBIH"
-#define GPA_UNITS "smmmn-ss"
-#define GPA_MULTS "FBBBB-CC"
+#define GPA_LABELS "TimeUS,VDop,HAcc,VAcc,SAcc,YAcc,VV,SMS,Delta"
+#define GPA_FMT   "QCCCCfBIH"
+#define GPA_UNITS "smmmnd-ss"
+#define GPA_MULTS "FBBBB0-CC"
 
 // see "struct GPS_State" and "Write_GPS":
 #define GPS_LABELS "TimeUS,Status,GMS,GWk,NSats,HDop,Lat,Lng,Alt,Spd,GCrs,VZ,Yaw,U"
@@ -1388,13 +1413,13 @@ struct PACKED log_Arm_Disarm {
     { LOG_PROXIMITY_MSG, sizeof(log_Proximity), \
       "PRX", "QBfffffffffff", "TimeUS,Health,D0,D45,D90,D135,D180,D225,D270,D315,DUp,CAn,CDis", "s-mmmmmmmmmhm", "F-00000000000" }, \
     { LOG_PERFORMANCE_MSG, sizeof(log_Performance),                     \
-      "PM",  "QHHIIHIIIII", "TimeUS,NLon,NLoop,MaxT,Mem,Load,IntE,IntEC,SPIC,I2CC,I2CI", "s---b%-----", "F---0A-----" }, \
+      "PM",  "QHHIIHIIIIII", "TimeUS,NLon,NLoop,MaxT,Mem,Load,IntE,IntEC,SPIC,I2CC,I2CI,ExUS", "s---b%-----s", "F---0A-----F" }, \
     { LOG_SRTL_MSG, sizeof(log_SRTL), \
       "SRTL", "QBHHBfff", "TimeUS,Active,NumPts,MaxPts,Action,N,E,D", "s----mmm", "F----000" }, \
     { LOG_OA_BENDYRULER_MSG, sizeof(log_OABendyRuler), \
       "OABR","QBHHfLLLL","TimeUS,Active,DesYaw,Yaw,Mar,DLat,DLng,OALat,OALng", "sbddmDUDU", "F----GGGG" }, \
     { LOG_OA_DIJKSTRA_MSG, sizeof(log_OADijkstra), \
-      "OADJ","QBBBLLLL","TimeUS,State,CurrPoint,TotPoints,DLat,DLng,OALat,OALng", "sbbbDUDU", "F---GGGG" }
+      "OADJ","QBBBBLLLL","TimeUS,State,Err,CurrPoint,TotPoints,DLat,DLng,OALat,OALng", "sbbbbDUDU", "F----GGGG" }
 
 // messages for more advanced boards
 #define LOG_EXTRA_STRUCTURES \
@@ -1510,6 +1535,10 @@ struct PACKED log_Arm_Disarm {
       "ESC7",  ESC_FMT, ESC_LABELS, ESC_UNITS, ESC_MULTS }, \
     { LOG_ESC8_MSG, sizeof(log_Esc), \
       "ESC8",  ESC_FMT, ESC_LABELS, ESC_UNITS, ESC_MULTS }, \
+    { LOG_CSRV_MSG, sizeof(log_CSRV), \
+      "CSRV","QBfffB","TimeUS,Id,Pos,Force,Speed,Pow", "s#---%", "F-0000" }, \
+    { LOG_CESC_MSG, sizeof(log_CESC), \
+      "CESC","QBIfffiB","TimeUS,Id,ECnt,Voltage,Curr,Temp,RPM,Pow", "s#-vAOq%", "F-000000" }, \
     { LOG_COMPASS2_MSG, sizeof(log_Compass), \
       "MAG2",MAG_FMT,    MAG_LABELS, MAG_UNITS, MAG_MULTS }, \
     { LOG_COMPASS3_MSG, sizeof(log_Compass), \
@@ -1677,6 +1706,8 @@ enum LogMessages : uint8_t {
     LOG_ESC6_MSG,
     LOG_ESC7_MSG,
     LOG_ESC8_MSG,
+    LOG_CSRV_MSG,
+    LOG_CESC_MSG,
     LOG_BAR2_MSG,
     LOG_ARSP_MSG,
     LOG_ATTITUDE_MSG,

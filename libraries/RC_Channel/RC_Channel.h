@@ -40,17 +40,17 @@ public:
     // for hover throttle
     int16_t     pwm_to_angle_dz_trim(uint16_t dead_zone, uint16_t trim) const;
 
-    /*
-      return a normalised input for a channel, in range -1 to 1,
-      centered around the channel trim. Ignore deadzone.
-     */
+    // return a normalised input for a channel, in range -1 to 1,
+    // centered around the channel trim. Ignore deadzone.
     float       norm_input() const;
 
-    /*
-      return a normalised input for a channel, in range -1 to 1,
-      centered around the channel trim. Take into account the deadzone
-    */
+    // return a normalised input for a channel, in range -1 to 1,
+    // centered around the channel trim. Take into account the deadzone
     float       norm_input_dz() const;
+
+    // return a normalised input for a channel, in range -1 to 1,
+    // ignores trim and deadzone
+    float       norm_input_ignore_trim() const;
 
     uint8_t     percent_input() const;
     int16_t     pwm_to_range() const;
@@ -95,7 +95,7 @@ public:
 
     AP_Int16    option; // e.g. activate EPM gripper / enable fence
 
-    // auxillary switch support:
+    // auxiliary switch support
     void init_aux();
     bool read_aux();
 
@@ -172,8 +172,12 @@ public:
         CIRCLE    =           72, // circle mode
         DRIFT     =           73, // drift mode
         SAILBOAT_MOTOR_3POS = 74, // Sailboat motoring 3pos
+        SURFACE_TRACKING =    75, // Surface tracking upwards or downwards
+        STANDBY  =            76, // Standby mode
+        TAKEOFF   =           77, // takeoff
         KILL_IMU1 =          100, // disable first IMU (for IMU failure testing)
         KILL_IMU2 =          101, // disable second IMU (for IMU failure testing)
+        CAM_MODE_TOGGLE =    102, // Momentary switch to cycle camera modes
         // if you add something here, make sure to update the documentation of the parameter in RC_Channel.cpp!
         // also, if you add an option >255, you will need to fix duplicate_options_exist
 
@@ -329,6 +333,11 @@ public:
         return get_singleton() != nullptr && (_options & uint32_t(Option::IGNORE_FAILSAFE));
     }
 
+    // should we add a pad byte to Fport data
+    bool fport_pad(void) const {
+        return get_singleton() != nullptr && (_options & uint32_t(Option::FPORT_PAD));
+    }
+
     bool ignore_overrides() const {
         return _options & uint32_t(Option::IGNORE_OVERRIDES);
     }
@@ -347,6 +356,7 @@ protected:
         IGNORE_RECEIVER  = (1 << 0), // RC receiver modules
         IGNORE_OVERRIDES = (1 << 1), // MAVLink overrides
         IGNORE_FAILSAFE  = (1 << 2), // ignore RC failsafe bits
+        FPORT_PAD             = (1 << 3), // pad fport telem output
     };
 
     void new_override_received() {

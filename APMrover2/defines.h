@@ -25,11 +25,9 @@
 #define LOG_THR_MSG             0x01
 #define LOG_NTUN_MSG            0x02
 #define LOG_STARTUP_MSG         0x06
-#define LOG_RANGEFINDER_MSG     0x07
 #define LOG_STEERING_MSG        0x0D
 #define LOG_GUIDEDTARGET_MSG    0x0E
 
-#define TYPE_AIRSTART_MSG       0x00
 #define TYPE_GROUNDSTART_MSG    0x01
 
 #define MASK_LOG_ATTITUDE_FAST  (1<<0)
@@ -91,18 +89,6 @@ enum fs_ekf_action {
 };
 
 #define DISTANCE_HOME_MINCHANGE 0.5f  // minimum distance to adjust home location
-
-enum mode_reason_t {
-    MODE_REASON_INITIALISED = 0,
-    MODE_REASON_TX_COMMAND,
-    MODE_REASON_GCS_COMMAND,
-    MODE_REASON_FAILSAFE,
-    MODE_REASON_MISSION_END,
-    MODE_REASON_CRASH_FAILSAFE,
-    MODE_REASON_MISSION_COMMAND,
-    MODE_REASON_FENCE_BREACH,
-    MODE_REASON_EKF_FAILSAFE,
-};
 
 enum pilot_steer_type_t {
     PILOT_STEER_TYPE_DEFAULT = 0,

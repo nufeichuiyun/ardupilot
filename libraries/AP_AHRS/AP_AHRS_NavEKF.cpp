@@ -1354,6 +1354,7 @@ bool AP_AHRS_NavEKF::attitudes_consistent(char *failure_msg, const uint8_t failu
     get_quat_body_to_ned(primary_quat);
     // only check yaw if compasses are being used
     bool check_yaw = _compass && _compass->use_for_yaw();
+    uint8_t total_ekf_cores = 0;
 
     // check primary vs ekf2
     for (uint8_t i = 0; i < EKF2.activeCores(); i++) {
@@ -1372,6 +1373,7 @@ bool AP_AHRS_NavEKF::attitudes_consistent(char *failure_msg, const uint8_t failu
             return false;
         }
     }
+    total_ekf_cores = EKF2.activeCores();
 
     // check primary vs ekf3
     for (uint8_t i = 0; i < EKF3.activeCores(); i++) {
@@ -1390,21 +1392,27 @@ bool AP_AHRS_NavEKF::attitudes_consistent(char *failure_msg, const uint8_t failu
             return false;
         }
     }
+    total_ekf_cores += EKF3.activeCores();
 
-    // check primary vs dcm
-    Quaternion dcm_quat;
-    Vector3f angle_diff;
-    dcm_quat.from_rotation_matrix(get_DCM_rotation_body_to_ned());
-    primary_quat.angular_difference(dcm_quat).to_axis_angle(angle_diff);
-    float diff = safe_sqrt(sq(angle_diff.x)+sq(angle_diff.y));
-    if (diff > ATTITUDE_CHECK_THRESH_ROLL_PITCH_RAD) {
-        hal.util->snprintf(failure_msg, failure_msg_len, "DCM Roll/Pitch inconsistent by %d deg", (int)degrees(diff));
-        return false;
-    }
-    diff = fabsf(angle_diff.z);
-    if (check_yaw && (diff > ATTITUDE_CHECK_THRESH_YAW_RAD)) {
-        hal.util->snprintf(failure_msg, failure_msg_len, "DCM Yaw inconsistent by %d deg", (int)degrees(diff));
-        return false;
+    // check primary vs dcm if this vehicle could use DCM in flight or only one core is enabled
+    if (!always_use_EKF() || (total_ekf_cores == 1)) {
+        Quaternion dcm_quat;
+        Vector3f angle_diff;
+        dcm_quat.from_rotation_matrix(get_DCM_rotation_body_to_ned());
+        primary_quat.angular_difference(dcm_quat).to_axis_angle(angle_diff);
+        float diff = safe_sqrt(sq(angle_diff.x)+sq(angle_diff.y));
+        if (diff > ATTITUDE_CHECK_THRESH_ROLL_PITCH_RAD) {
+            hal.util->snprintf(failure_msg, failure_msg_len, "DCM Roll/Pitch inconsistent by %d deg", (int)degrees(diff));
+            return false;
+        }
+
+        if (!always_use_EKF()) {
+            diff = fabsf(angle_diff.z);
+            if (check_yaw && (diff > ATTITUDE_CHECK_THRESH_YAW_RAD)) {
+                hal.util->snprintf(failure_msg, failure_msg_len, "DCM Yaw inconsistent by %d deg", (int)degrees(diff));
+                return false;
+            }
+        }
     }
 
     return true;
@@ -1639,6 +1647,38 @@ bool AP_AHRS_NavEKF::get_location(struct Location &loc) const
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     case EKF_TYPE_SITL:
         return get_position(loc);
+#endif
+    }
+}
+
+// return the innovations for the primariy EKF
+// boolean false is returned if innovations are not available
+bool AP_AHRS_NavEKF::get_innovations(Vector3f &velInnov, Vector3f &posInnov, Vector3f &magInnov, float &tasInnov, float &yawInnov) const
+{
+    switch (ekf_type()) {
+    case EKF_TYPE_NONE:
+        // We are not using an EKF so no data
+        return false;
+
+    case EKF_TYPE2:
+    default:
+        // use EKF to get innovations
+        EKF2.getInnovations(-1, velInnov, posInnov, magInnov, tasInnov, yawInnov);
+        return true;
+
+    case EKF_TYPE3:
+        // use EKF to get innovations
+        EKF3.getInnovations(-1, velInnov, posInnov, magInnov, tasInnov, yawInnov);
+        return true;
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    case EKF_TYPE_SITL:
+        velInnov.zero();
+        posInnov.zero();
+        magInnov.zero();
+        tasInnov = 0.0f;
+        yawInnov = 0.0f;
+        return true;
 #endif
     }
 }

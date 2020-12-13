@@ -18,13 +18,13 @@
 #define AP_UAVCAN_H_
 
 #include <uavcan/uavcan.hpp>
+#include "AP_UAVCAN_Server.h"
 
 #include <AP_HAL/CAN.h>
 #include <AP_HAL/Semaphores.h>
 #include <AP_Param/AP_Param.h>
 
 #include <uavcan/helpers/heap_based_pool_allocator.hpp>
-#include "AP_UAVCAN_Servers.h"
 
 #ifndef UAVCAN_NODE_POOL_SIZE
 #define UAVCAN_NODE_POOL_SIZE 8192
@@ -48,6 +48,9 @@
 
 // fwd-declare callback classes
 class ButtonCb;
+class TrafficReportCb;
+class ActuatorStatusCb;
+class ESCStatusCb;
 
 /*
     Frontend Backend-Registry Binder: Whenever a message of said DataType_ from new node is received,
@@ -86,6 +89,9 @@ public:
 
     // buzzer
     void set_buzzer_tone(float frequency, float duration_s);
+
+    // send RTCMStream packets
+    void send_RTCMStream(const uint8_t *data, uint32_t len);
 
     template <typename DataType_>
     class RegistryBinder {
@@ -157,7 +163,10 @@ private:
 
     // SafetyState
     void safety_state_send();
-    
+
+    // send GNSS injection
+    void rtcm_stream_send();
+
     uavcan::PoolAllocator<UAVCAN_NODE_POOL_SIZE, UAVCAN_NODE_POOL_BLOCK_SIZE, AP_UAVCAN::RaiiSynchronizer> _node_allocator;
 
     // UAVCAN parameters
@@ -169,12 +178,8 @@ private:
     uavcan::Node<0> *_node;
 
     uint8_t _driver_index;
-    char _thread_name[9];
+    char _thread_name[13];
     bool _initialized;
-#ifdef HAS_UAVCAN_SERVERS
-    AP_UAVCAN_Servers _servers;
-#endif
-
     ///// SRV output /////
     struct {
         uint16_t pulse;
@@ -210,11 +215,21 @@ private:
         uint8_t pending_mask; // mask of interfaces to send to
     } _buzzer;
 
+    // GNSS RTCM injection
+    struct {
+        HAL_Semaphore sem;
+        uint32_t last_send_ms;
+        ByteBuffer *buf;
+    } _rtcm_stream;
+    
     // safety status send state
     uint32_t _last_safety_state_ms;
 
     // safety button handling
     static void handle_button(AP_UAVCAN* ap_uavcan, uint8_t node_id, const ButtonCb &cb);
+    static void handle_traffic_report(AP_UAVCAN* ap_uavcan, uint8_t node_id, const TrafficReportCb &cb);
+    static void handle_actuator_status(AP_UAVCAN* ap_uavcan, uint8_t node_id, const ActuatorStatusCb &cb);
+    static void handle_ESC_status(AP_UAVCAN* ap_uavcan, uint8_t node_id, const ESCStatusCb &cb);
 };
 
 #endif /* AP_UAVCAN_H_ */
