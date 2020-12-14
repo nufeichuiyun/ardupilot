@@ -19,6 +19,7 @@
 
 #if HAL_USE_CAN == TRUE
 #include <AP_Math/AP_Math.h>
+#include <AP_Math/crc.h>
 #include <canard.h>
 #include "support.h"
 #include <uavcan/protocol/dynamic_node_id/Allocation.h>
@@ -31,6 +32,8 @@
 #include "can.h"
 #include "bl_protocol.h"
 #include <drivers/stm32/canard_stm32.h>
+#include "app_comms.h"
+#include <stdio.h>
 
 
 static CanardInstance canard;
@@ -57,10 +60,6 @@ static CANConfig cancfg = {
 #ifndef CAN_APP_NODE_NAME
 #define CAN_APP_NODE_NAME                                               "org.ardupilot.ap_periph"
 #endif
-
-// darn, libcanard generates the wrong signature for file read
-//#undef UAVCAN_PROTOCOL_FILE_READ_SIGNATURE
-//#define UAVCAN_PROTOCOL_FILE_READ_SIGNATURE                0x8DCDCA939F33F678ULL
 
 static uint8_t node_id_allocation_transfer_id;
 static uavcan_protocol_NodeStatus node_status;
@@ -127,6 +126,11 @@ static void handle_get_node_info(CanardInstance* ins,
 
     readUniqueID(pkt.hardware_version.unique_id);
 
+    // use hw major/minor for APJ_BOARD_ID so we know what fw is
+    // compatible with this hardware
+    pkt.hardware_version.major = APJ_BOARD_ID >> 8;
+    pkt.hardware_version.minor = APJ_BOARD_ID & 0xFF;
+
     char name[strlen(CAN_APP_NODE_NAME)+1];
     strcpy(name, CAN_APP_NODE_NAME);
     pkt.name.len = strlen(CAN_APP_NODE_NAME);
@@ -151,7 +155,8 @@ static void handle_get_node_info(CanardInstance* ins,
 static void send_fw_read(void)
 {
     uint32_t now = AP_HAL::millis();
-    if (now - fw_update.last_ms < 500) {
+    if (now - fw_update.last_ms < 250) {
+        // the server may still be responding
         return;
     }
     fw_update.last_ms = now;
@@ -170,7 +175,7 @@ static void send_fw_read(void)
                            UAVCAN_PROTOCOL_FILE_READ_SIGNATURE,
                            UAVCAN_PROTOCOL_FILE_READ_ID,
                            &fw_update.transfer_id,
-                           CANARD_TRANSFER_PRIORITY_LOW,
+                           CANARD_TRANSFER_PRIORITY_HIGH,
                            CanardRequest,
                            &buffer[0],
                            total_size);
@@ -223,7 +228,9 @@ static void handle_file_read_response(CanardInstance* ins, CanardRxTransfer* tra
         fw_update.node_id = 0;
         // now flash the first word
         flash_func_write_word(0, app_first_word);
-        jump_to_app();
+        if (can_check_firmware()) {
+            jump_to_app();
+        }
     }
 
     // show offset number we are flashing in kbyte as crude progress indicator
@@ -241,19 +248,21 @@ static void handle_begin_firmware_update(CanardInstance* ins, CanardRxTransfer* 
     if (transfer->payload_len < 1 || transfer->payload_len > sizeof(fw_update.path)+1) {
         return;
     }
-    uint32_t offset = 0;
-    canardDecodeScalar(transfer, 0, 8, false, (void*)&fw_update.node_id);
-    offset += 8;
-    for (uint8_t i=0; i<transfer->payload_len-1; i++) {
-        canardDecodeScalar(transfer, offset, 8, false, (void*)&fw_update.path[i]);
-        offset += 8;
-    }
-    fw_update.ofs = 0;
-    fw_update.last_ms = 0;
-    fw_update.sector = 0;
-    fw_update.sector_ofs = 0;
     if (fw_update.node_id == 0) {
-        fw_update.node_id = transfer->source_node_id;
+        uint32_t offset = 0;
+        canardDecodeScalar(transfer, 0, 8, false, (void*)&fw_update.node_id);
+        offset += 8;
+        for (uint8_t i=0; i<transfer->payload_len-1; i++) {
+            canardDecodeScalar(transfer, offset, 8, false, (void*)&fw_update.path[i]);
+            offset += 8;
+        }
+        fw_update.ofs = 0;
+        fw_update.last_ms = 0;
+        fw_update.sector = 0;
+        fw_update.sector_ofs = 0;
+        if (fw_update.node_id == 0) {
+            fw_update.node_id = transfer->source_node_id;
+        }
     }
 
     uint8_t buffer[UAVCAN_PROTOCOL_FILE_BEGINFIRMWAREUPDATE_RESPONSE_MAX_SIZE];
@@ -538,6 +547,62 @@ static void process1HzTasks(uint64_t timestamp_usec)
 void can_set_node_id(uint8_t node_id)
 {
     initial_node_id = node_id;
+}
+
+/*
+  check firmware CRC to see if it matches
+ */
+bool can_check_firmware(void)
+{
+    if (fw_update.node_id != 0) {
+        // we're doing an update, don't boot this fw
+        return false;
+    }
+    const uint8_t sig[8] = { 0x40, 0xa2, 0xe4, 0xf1, 0x64, 0x68, 0x91, 0x06 };
+    const uint8_t *flash = (const uint8_t *)(FLASH_LOAD_ADDRESS + FLASH_BOOTLOADER_LOAD_KB*1024);
+    const uint32_t flash_size = (BOARD_FLASH_SIZE - FLASH_BOOTLOADER_LOAD_KB)*1024;
+    const uint8_t desc_len = 16;
+    const uint8_t *ptr = (const uint8_t *)memmem(flash, flash_size-(desc_len+sizeof(sig)), sig, sizeof(sig));
+    if (ptr == nullptr) {
+        // no application signature
+        printf("No app sig\n");
+        return false;
+    }
+    ptr += sizeof(sig);
+    uint32_t desc[4];
+    memcpy(desc, ptr, sizeof(desc));
+
+    // check length
+    if (desc[2] > flash_size) {
+        printf("Bad fw length %u\n", desc[2]);
+        return false;
+    }
+
+    uint32_t len1 = ptr - flash;
+    uint32_t len2 = desc[2] - (len1 + sizeof(desc));
+    uint32_t crc1 = crc_crc32(0, flash, len1);
+    uint32_t crc2 = crc_crc32(0, ptr+sizeof(desc), len2);
+    if (crc1 != desc[0] || crc2 != desc[1]) {
+        printf("Bad app CRC 0x%08x:0x%08x 0x%08x:0x%08x\n", desc[0], desc[1], crc1, crc2);
+        return false;
+    }
+    printf("Good firmware\n");
+    return true;
+}
+
+// check for a firmware update marker left by app
+void can_check_update(void)
+{
+#if HAL_RAM_RESERVE_START >= 256
+    struct app_bootloader_comms *comms = (struct app_bootloader_comms *)HAL_RAM0_START;
+    if (comms->magic == APP_BOOTLOADER_COMMS_MAGIC) {
+        can_set_node_id(comms->my_node_id);
+        fw_update.node_id = comms->server_node_id;
+        memcpy(fw_update.path, comms->path, UAVCAN_PROTOCOL_FILE_PATH_PATH_MAX_LENGTH+1);
+    }
+    // clear comms region
+    memset(comms, 0, sizeof(struct app_bootloader_comms));
+#endif
 }
 
 void can_start()

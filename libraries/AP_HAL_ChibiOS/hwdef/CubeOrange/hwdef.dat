@@ -19,12 +19,9 @@ APJ_BOARD_ID 140
 FLASH_SIZE_KB 2048
 
 # with 2M flash we can afford to optimize for speed
-env OPTIMIZE -O3
+env OPTIMIZE -O2
 
 FLASH_RESERVE_START_KB 128
-
-# board voltage
-STM32_VDD 330U
 
 define HAL_STORAGE_SIZE 16384
 
@@ -32,7 +29,7 @@ define HAL_STORAGE_SIZE 16384
 I2C_ORDER I2C2 I2C1
 
 # order of UARTs (and USB)
-UART_ORDER OTG1 UART4 USART2 USART3 UART8 UART7 OTG2
+SERIAL_ORDER OTG1 USART2 USART3 UART4 UART8 UART7 OTG2
 
 # If the board has an IOMCU connected via a UART then this defines the
 # UART to talk to that MCU. Leave it out for boards with no IOMCU.
@@ -248,7 +245,24 @@ IMU Invensense SPI:icm20602_ext ROTATION_ROLL_180_YAW_270
 IMU Invensensev2 SPI:icm20948_ext ROTATION_PITCH_180
 IMU Invensensev2 SPI:icm20948 ROTATION_YAW_270
 
-define HAL_DEFAULT_INS_FAST_SAMPLE 5
+# Sensor Check alias for validating board type
+CHECK_ICM20649          spi_check_register("icm20948", INV2REG_WHOAMI, INV2_WHOAMI_ICM20649)
+CHECK_ICM20602_EXT      spi_check_register("icm20602_ext", MPUREG_WHOAMI, MPU_WHOAMI_ICM20602)
+CHECK_ICM20948_EXT      spi_check_register("icm20948_ext", INV2REG_WHOAMI, INV2_WHOAMI_ICM20948)
+CHECK_MS5611            check_ms5611("ms5611")
+CHECK_MS5611_EXT        check_ms5611("ms5611_ext")
+
+# Sensor Check Macros to be used for validating board type
+CHECK_IMU0_PRESENT   $CHECK_ICM20602_EXT
+CHECK_IMU1_PRESENT   $CHECK_ICM20948_EXT
+CHECK_IMU2_PRESENT   $CHECK_ICM20649
+CHECK_BARO0_PRESENT  $CHECK_MS5611
+CHECK_BARO1_PRESENT  $CHECK_MS5611_EXT
+
+BOARD_VALIDATE $CHECK_IMU0_PRESENT $CHECK_IMU1_PRESENT $CHECK_IMU2_PRESENT $CHECK_BARO0_PRESENT $CHECK_BARO1_PRESENT
+
+
+define HAL_DEFAULT_INS_FAST_SAMPLE 7
 
 # two baros
 BARO MS56XX SPI:ms5611_ext
@@ -285,12 +299,6 @@ define HAL_HAVE_IMU_HEATER 1
 
 # Enable FAT filesystem support (needs a microSD defined via SDMMC).
 define HAL_OS_FATFS_IO 1
-
-# Enable RTSCTS support. You should define this if you have any UARTs with RTS/CTS pins.
-define AP_FEATURE_RTSCTS 1
-
-# Enable SBUS_OUT on IOMCU (if you have an IOMCU).
-define AP_FEATURE_SBUS_OUT 1
 
 # Now setup the default battery pins driver analog pins and default
 # scaling for the power brick.

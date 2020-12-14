@@ -129,6 +129,9 @@ public:
     /// get_alt_error - returns altitude error in cm
     float get_alt_error() const;
 
+    /// get_vel_z_error_ratio - returns the proportion of error relative to the maximum request
+    float get_vel_z_control_ratio() const { return constrain_float(_vel_z_control_ratio, 0.0f, 1.0f); }
+    
     // returns horizontal error in cm
     float get_horizontal_error() const;
 
@@ -163,6 +166,12 @@ public:
     ///     should be called once whenever significant changes to the position target are made
     ///     this does not update the xy target
     void init_xy_controller();
+
+    /// standby_xyz_reset - resets I terms and removes position error
+    ///     This function will let Loiter and Alt Hold continue to operate
+    ///     in the event that the flight controller is in control of the
+    ///     aircraft when in standby.
+    void standby_xyz_reset();
 
     /// set_max_accel_xy - set the maximum horizontal acceleration in cm/s/s
     ///     leash length will be recalculated
@@ -298,6 +307,9 @@ public:
                         char *failure_msg,
                         const uint8_t failure_msg_len);
 
+    // enable or disable high vibration compensation
+    void set_vibe_comp(bool on_off) { _vibe_comp_enabled = on_off; }
+
     static const struct AP_Param::GroupInfo var_info[];
 
 protected:
@@ -394,6 +406,7 @@ protected:
     float       _leash;                 // horizontal leash length in cm.  target will never be further than this distance from the vehicle
     float       _leash_down_z;          // vertical leash down in cm.  target will never be further than this distance below the vehicle
     float       _leash_up_z;            // vertical leash up in cm.  target will never be further than this distance above the vehicle
+    float       _vel_z_control_ratio = 2.0f;   // confidence that we have control in the vertical axis
 
     // output from controller
     float       _roll_target;           // desired roll angle in centi-degrees calculated by position controller
@@ -417,4 +430,7 @@ protected:
     // ekf reset handling
     uint32_t    _ekf_xy_reset_ms;      // system time of last recorded ekf xy position reset
     uint32_t    _ekf_z_reset_ms;       // system time of last recorded ekf altitude reset
+
+    // high vibration handling
+    bool        _vibe_comp_enabled;     // true when high vibration compensation is on
 };

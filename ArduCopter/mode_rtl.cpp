@@ -119,7 +119,7 @@ void ModeRTL::climb_start()
     if (!wp_nav->set_wp_destination(rtl_path.climb_target)) {
         // this should not happen because rtl_build_path will have checked terrain data was available
         AP::logger().Write_Error(LogErrorSubsystem::NAVIGATION, LogErrorCode::FAILED_TO_SET_DESTINATION);
-        copter.set_mode(LAND, MODE_REASON_TERRAIN_FAILSAFE);
+        copter.set_mode(Mode::Number::LAND, ModeReason::TERRAIN_FAILSAFE);
         return;
     }
     wp_nav->set_fast_waypoint(true);
@@ -242,7 +242,7 @@ void ModeRTL::loiterathome_run()
     if ((millis() - _loiter_start_time) >= (uint32_t)g.rtl_loiter_time.get()) {
         if (auto_yaw.mode() == AUTO_YAW_RESETTOARMEDYAW) {
             // check if heading is within 2 degrees of heading when vehicle was armed
-            if (fabsf(wrap_180_cd(ahrs.yaw_sensor-copter.initial_armed_bearing)) <= 200) {
+            if (abs(wrap_180_cd(ahrs.yaw_sensor-copter.initial_armed_bearing)) <= 200) {
                 _state_complete = true;
             }
         } else {
@@ -266,6 +266,9 @@ void ModeRTL::descent_start()
 
     // initialise yaw
     auto_yaw.set_mode(AUTO_YAW_HOLD);
+
+    // optionally deploy landing gear
+    copter.landinggear.deploy_for_landing();
 }
 
 // rtl_descent_run - implements the final descent to the RTL_ALT
@@ -287,8 +290,8 @@ void ModeRTL::descent_run()
         if ((g.throttle_behavior & THR_BEHAVE_HIGH_THROTTLE_CANCELS_LAND) != 0 && copter.rc_throttle_control_in_filter.get() > LAND_CANCEL_TRIGGER_THR){
             Log_Write_Event(DATA_LAND_CANCELLED_BY_PILOT);
             // exit land if throttle is high
-            if (!copter.set_mode(LOITER, MODE_REASON_THROTTLE_LAND_ESCAPE)) {
-                copter.set_mode(ALT_HOLD, MODE_REASON_THROTTLE_LAND_ESCAPE);
+            if (!copter.set_mode(Mode::Number::LOITER, ModeReason::THROTTLE_LAND_ESCAPE)) {
+                copter.set_mode(Mode::Number::ALT_HOLD, ModeReason::THROTTLE_LAND_ESCAPE);
             }
         }
 
@@ -349,24 +352,14 @@ void ModeRTL::land_start()
 
     // initialise yaw
     auto_yaw.set_mode(AUTO_YAW_HOLD);
+
+    // optionally deploy landing gear
+    copter.landinggear.deploy_for_landing();
 }
 
 bool ModeRTL::is_landing() const
 {
     return _state == RTL_Land;
-}
-
-bool ModeRTL::landing_gear_should_be_deployed() const
-{
-    switch(_state) {
-    case RTL_LoiterAtHome:
-    case RTL_Land:
-    case RTL_FinalDescent:
-        return true;
-    default:
-        return false;
-    }
-    return false;
 }
 
 // rtl_returnhome_run - return home

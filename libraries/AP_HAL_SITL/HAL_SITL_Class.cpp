@@ -122,11 +122,36 @@ static void sig_alrm(int signum)
     execv(new_argv[0], new_argv);
 }
 
+void HAL_SITL::exit_signal_handler(int signum)
+{
+    HALSITL::Scheduler::_should_exit = true;
+}
+
+void HAL_SITL::setup_signal_handlers() const
+{
+    struct sigaction sa = { };
+
+    sa.sa_flags = SA_NOCLDSTOP;
+    sa.sa_handler = HAL_SITL::exit_signal_handler;
+    sigaction(SIGTERM, &sa, NULL);
+}
+
+/*
+  fill 8k of stack with NaN. This allows us to find uses of
+  uninitialised memory without valgrind
+ */
+static void fill_stack_nan(void)
+{
+    float stk[2048];
+    fill_nanf(stk, ARRAY_SIZE(stk));
+}
+
 void HAL_SITL::run(int argc, char * const argv[], Callbacks* callbacks) const
 {
     assert(callbacks);
 
     _sitl_state->init(argc, argv);
+
     scheduler->init();
     uartA->begin(115200);
 
@@ -137,9 +162,10 @@ void HAL_SITL::run(int argc, char * const argv[], Callbacks* callbacks) const
     analogin->init();
 
     if (getenv("SITL_WATCHDOG_RESET")) {
-        AP::internalerror().error(AP_InternalError::error_t::watchdog_reset);
+        INTERNAL_ERROR(AP_InternalError::error_t::watchdog_reset);
         if (watchdog_load((uint32_t *)&utilInstance.persistent_data, (sizeof(utilInstance.persistent_data)+3)/4)) {
             uartA->printf("Loaded watchdog data");
+            utilInstance.last_persistent_data = utilInstance.persistent_data;
         }
     }
 
@@ -153,16 +179,19 @@ void HAL_SITL::run(int argc, char * const argv[], Callbacks* callbacks) const
         new_argv[new_argv_offset++] = argv[i];
     }
     
+    fill_stack_nan();
+
     callbacks->setup();
     scheduler->system_initialized();
 
     if (getenv("SITL_WATCHDOG_RESET")) {
         const AP_HAL::Util::PersistentData &pd = util->persistent_data;
-        AP::logger().WriteCritical("WDOG", "TimeUS,Task,IErr,IErrCnt,MavMsg,MavCmd,SemLine", "QbIIHHH",
+        AP::logger().WriteCritical("WDOG", "TimeUS,Task,IErr,IErrCnt,IErrLn,MavMsg,MavCmd,SemLine", "QbIHHHHH",
                                    AP_HAL::micros64(),
                                    pd.scheduler_task,
                                    pd.internal_errors,
                                    pd.internal_error_count,
+                                   pd.internal_error_last_line,
                                    pd.last_mavlink_msgid,
                                    pd.last_mavlink_cmd,
                                    pd.semaphore_line);
@@ -173,10 +202,16 @@ void HAL_SITL::run(int argc, char * const argv[], Callbacks* callbacks) const
         signal(SIGALRM, sig_alrm);
         alarm(2);
     }
+    setup_signal_handlers();
 
     uint32_t last_watchdog_save = AP_HAL::millis();
 
     while (!HALSITL::Scheduler::_should_reboot) {
+        if (HALSITL::Scheduler::_should_exit) {
+            ::fprintf(stderr, "Exitting\n");
+            exit(0);
+        }
+        fill_stack_nan();
         callbacks->loop();
         HALSITL::Scheduler::_run_io_procs();
 

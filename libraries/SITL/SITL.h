@@ -3,12 +3,15 @@
 #include <AP_Math/AP_Math.h>
 #include <GCS_MAVLink/GCS_MAVLink.h>
 #include <AP_Common/Location.h>
+#include <AP_Compass/AP_Compass.h>
 
-#include "SIM_Sprayer.h"
-#include "SIM_Gripper_Servo.h"
+#include "SIM_Buzzer.h"
 #include "SIM_Gripper_EPM.h"
+#include "SIM_Gripper_Servo.h"
 #include "SIM_Parachute.h"
 #include "SIM_Precland.h"
+#include "SIM_Sprayer.h"
+#include "SIM_ToneAlarm.h"
 
 namespace SITL {
 
@@ -64,6 +67,7 @@ public:
         mag_ofs.set(Vector3f(5, 13, -18));
         AP_Param::setup_object_defaults(this, var_info);
         AP_Param::setup_object_defaults(this, var_info2);
+        AP_Param::setup_object_defaults(this, var_info3);
         if (_singleton != nullptr) {
             AP_HAL::panic("Too many SITL instances");
         }
@@ -109,6 +113,11 @@ public:
     
     static const struct AP_Param::GroupInfo var_info[];
     static const struct AP_Param::GroupInfo var_info2[];
+    static const struct AP_Param::GroupInfo var_info3[];
+
+    // Board Orientation (and inverse)
+    Matrix3f ahrs_rotation;
+    Matrix3f ahrs_rotation_inv;
 
     // noise levels for simulated sensors
     AP_Float baro_noise;  // in metres
@@ -176,6 +185,9 @@ public:
     AP_Float flow_noise; // optical flow measurement noise (rad/sec)
     AP_Int8  baro_count; // number of simulated baros to create
     AP_Int8 gps_hdg_enabled; // enable the output of a NMEA heading HDT sentence
+    AP_Int32 loop_delay; // extra delay to add to every loop
+    AP_Float mag_scaling; // scaling factor on first compasses
+    AP_Int32 mag_devid[MAX_CONNECTED_MAGS]; // Mag devid
 
     // wind control
     enum WindType {
@@ -296,7 +308,18 @@ public:
     Gripper_EPM gripper_epm_sim;
 
     Parachute parachute_sim;
+    Buzzer buzzer_sim;
+    ToneAlarm tonealarm_sim;
     SIM_Precland precland_sim;
+
+    struct {
+        // LED state, for serial LED emulation
+        struct {
+            uint8_t rgb[3];
+        } rgb[16][32];
+        uint8_t num_leds[16];
+        uint32_t send_counter;
+    } led;
 };
 
 } // namespace SITL

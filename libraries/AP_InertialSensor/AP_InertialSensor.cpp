@@ -23,6 +23,7 @@
 #include "AP_InertialSensor_BMI055.h"
 #include "AP_InertialSensor_BMI088.h"
 #include "AP_InertialSensor_Invensensev2.h"
+#include "AP_InertialSensor_ADIS1647x.h"
 
 /* Define INS_TIMING_DEBUG to track down scheduling issues with the main loop.
  * Output is on the debug console. */
@@ -34,7 +35,7 @@
 #endif
 
 #ifndef HAL_DEFAULT_INS_FAST_SAMPLE
-#define HAL_DEFAULT_INS_FAST_SAMPLE 0
+#define HAL_DEFAULT_INS_FAST_SAMPLE 1
 #endif
 
 extern const AP_HAL::HAL& hal;

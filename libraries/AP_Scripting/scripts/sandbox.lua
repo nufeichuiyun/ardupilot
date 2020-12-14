@@ -8,6 +8,7 @@ function get_sandbox_env ()
           tonumber = tonumber,
           tostring = tostring,
           type = type,
+          error = error,
           unpack = unpack,
           io = { close = io.close, flush = io.flush, input = io.input, open = io.open, output = io.output,
                  popen = io.popen, read = io.read, type = io.type, write = io.write},
@@ -25,7 +26,7 @@ function get_sandbox_env ()
                    rad = math.rad, random = math.random, sin = math.sin, sinh = math.sinh, 
                    sqrt = math.sqrt, tan = math.tan, tanh = math.tanh },
           table = { insert = table.insert, maxn = table.maxn, remove = table.remove, 
-                    sort = table.sort },
+                    sort = table.sort, unpack = table.unpack },
           utf8 = { char = utf8.char, charpattern = utf8.charpattern, codes = utf8.codes,
                    codepoint = utf8.codepoint, len = utf8.len, offsets = utf8.offsets},
 

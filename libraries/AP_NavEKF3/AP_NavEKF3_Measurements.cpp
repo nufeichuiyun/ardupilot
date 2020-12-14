@@ -140,9 +140,10 @@ void NavEKF3_core::writeWheelOdom(float delAng, float delTime, uint32_t timeStam
     // It uses the exisiting body frame velocity fusion.
     // TODO implement a dedicated wheel odometry observation model
 
+    // rate limiting to 50hz should be done by the caller
     // limit update rate to maximum allowed by sensor buffers and fusion process
     // don't try to write to buffer until the filter has been initialised
-    if (((timeStamp_ms - wheelOdmMeasTime_ms) < frontend->sensorIntervalMin_ms) || (delTime < dtEkfAvg) || !statesInitialised) {
+    if ((delTime < dtEkfAvg) || !statesInitialised) {
         return;
     }
 
@@ -542,6 +543,7 @@ void NavEKF3_core::readGpsData()
             } else {
                 gpsSpdAccuracy = MAX(gpsSpdAccuracy,gpsSpdAccRaw);
                 gpsSpdAccuracy = MIN(gpsSpdAccuracy,50.0f);
+                gpsSpdAccuracy = MAX(gpsSpdAccuracy,frontend->_gpsHorizVelNoise);
             }
             gpsPosAccuracy *= (1.0f - alpha);
             float gpsPosAccRaw;
@@ -550,6 +552,7 @@ void NavEKF3_core::readGpsData()
             } else {
                 gpsPosAccuracy = MAX(gpsPosAccuracy,gpsPosAccRaw);
                 gpsPosAccuracy = MIN(gpsPosAccuracy,100.0f);
+                gpsPosAccuracy = MAX(gpsPosAccuracy, frontend->_gpsHorizPosNoise);
             }
             gpsHgtAccuracy *= (1.0f - alpha);
             float gpsHgtAccRaw;
@@ -558,6 +561,7 @@ void NavEKF3_core::readGpsData()
             } else {
                 gpsHgtAccuracy = MAX(gpsHgtAccuracy,gpsHgtAccRaw);
                 gpsHgtAccuracy = MIN(gpsHgtAccuracy,100.0f);
+                gpsHgtAccuracy = MAX(gpsHgtAccuracy, 1.5f * frontend->_gpsHorizPosNoise);
             }
 
             // check if we have enough GPS satellites and increase the gps noise scaler if we don't
@@ -606,6 +610,20 @@ void NavEKF3_core::readGpsData()
 
             }
 
+            if (gpsGoodToAlign && !have_table_earth_field) {
+                const Compass *compass = _ahrs->get_compass();
+                if (compass && compass->have_scale_factor(magSelectIndex) && compass->auto_declination_enabled()) {
+                    table_earth_field_ga = AP_Declination::get_earth_field_ga(gpsloc);
+                    table_declination = radians(AP_Declination::get_declination(gpsloc.lat*1.0e-7,
+                                                                            gpsloc.lng*1.0e-7));
+                    have_table_earth_field = true;
+                    if (frontend->_mag_ef_limit > 0) {
+                        // initialise earth field from tables
+                        stateStruct.earth_magfield = table_earth_field_ga;
+                    }
+                }
+            }
+
             // convert GPS measurements to local NED and save to buffer to be fused later if we have a valid origin
             if (validOrigin) {
                 gpsDataNew.pos = EKF_origin.get_distance_NE(gpsloc);
@@ -622,12 +640,19 @@ void NavEKF3_core::readGpsData()
             // if the GPS has yaw data then input that as well
             float yaw_deg, yaw_accuracy_deg;
             if (AP::gps().gps_yaw_deg(yaw_deg, yaw_accuracy_deg)) {
+                // GPS modules are rather too optimistic about their
+                // accuracy. Set to min of 5 degrees here to prevent
+                // the user constantly receiving warnings about high
+                // normalised yaw innovations
+                const float min_yaw_accuracy_deg = 5.0f;
+                yaw_accuracy_deg = MAX(yaw_accuracy_deg, min_yaw_accuracy_deg);
                 writeEulerYawAngle(radians(yaw_deg), radians(yaw_accuracy_deg), gpsDataNew.time_ms, 2);
             }
 
         } else {
             // report GPS fix status
             gpsCheckStatus.bad_fix = true;
+            hal.util->snprintf(prearm_fail_string, sizeof(prearm_fail_string), "Waiting for 3D fix");
         }
     }
 }
@@ -999,4 +1024,21 @@ void NavEKF3_core::learnInactiveBiases(void)
             inactiveBias[i].accel_bias -= error * (1.0e-4f * dtEkfAvg);
         }
     }
+}
+
+/*
+  return declination in radians
+*/
+float NavEKF3_core::MagDeclination(void) const
+{
+    // if we are using the WMM tables then use the table declination
+    // to ensure consistency with the table mag field. Otherwise use
+    // the declination from the compass library
+    if (have_table_earth_field && frontend->_mag_ef_limit > 0) {
+        return table_declination;
+    }
+    if (!use_compass()) {
+        return 0;
+    }
+    return _ahrs->get_compass()->get_declination();
 }

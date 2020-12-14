@@ -58,6 +58,10 @@ extern const AP_HAL::HAL& hal;
  # define POSCONTROL_VEL_XY_FILT_D_HZ           5.0f    // horizontal velocity controller input filter for D
 #endif
 
+// vibration compensation gains
+#define POSCONTROL_VIBE_COMP_P_GAIN 0.250f
+#define POSCONTROL_VIBE_COMP_I_GAIN 0.125f
+
 const AP_Param::GroupInfo AC_PosControl::var_info[] = {
     // 0 was used for HOVER
 
@@ -110,10 +114,34 @@ const AP_Param::GroupInfo AC_PosControl::var_info[] = {
     // @Range: 0.000 0.400
     // @User: Standard
 
-    // @Param: _ACCZ_FILT
-    // @DisplayName: Acceleration (vertical) controller filter
-    // @Description: Filter applied to acceleration to reduce noise.  Lower values reduce noise but add delay.
-    // @Range: 1.000 100.000
+    // @Param: _ACCZ_FF
+    // @DisplayName: Acceleration (vertical) controller feed forward
+    // @Description: Acceleration (vertical) controller feed forward
+    // @Range: 0 0.5
+    // @Increment: 0.001
+    // @User: Standard
+
+    // @Param: _ACCZ_FLTT
+    // @DisplayName: Acceleration (vertical) controller target frequency in Hz
+    // @Description: Acceleration (vertical) controller target frequency in Hz
+    // @Range: 1 50
+    // @Increment: 1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _ACCZ_FLTE
+    // @DisplayName: Acceleration (vertical) controller error frequency in Hz
+    // @Description: Acceleration (vertical) controller error frequency in Hz
+    // @Range: 1 100
+    // @Increment: 1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _ACCZ_FLTD
+    // @DisplayName: Acceleration (vertical) controller derivative frequency in Hz
+    // @Description: Acceleration (vertical) controller derivative frequency in Hz
+    // @Range: 1 100
+    // @Increment: 1
     // @Units: Hz
     // @User: Standard
     AP_SUBGROUPINFO(_pid_accel_z, "_ACCZ_", 4, AC_PosControl, AC_PID),
@@ -248,7 +276,13 @@ void AC_PosControl::set_max_speed_z(float speed_down, float speed_up)
     // ensure speed_down is always negative
     speed_down = -fabsf(speed_down);
 
-    if ((fabsf(_speed_down_cms - speed_down) > 1.0f) || (fabsf(_speed_up_cms - speed_up) > 1.0f)) {
+    // exit immediately if no change in speed up or down
+    if (is_equal(_speed_down_cms, speed_down) && is_equal(_speed_up_cms, speed_up)) {
+        return;
+    }
+
+    // sanity check speeds and update
+    if (is_positive(speed_up) && is_negative(speed_down)) {
         _speed_down_cms = speed_down;
         _speed_up_cms = speed_up;
         _flags.recalc_leash_z = true;
@@ -259,11 +293,14 @@ void AC_PosControl::set_max_speed_z(float speed_down, float speed_up)
 /// set_max_accel_z - set the maximum vertical acceleration in cm/s/s
 void AC_PosControl::set_max_accel_z(float accel_cmss)
 {
-    if (fabsf(_accel_z_cms - accel_cmss) > 1.0f) {
-        _accel_z_cms = accel_cmss;
-        _flags.recalc_leash_z = true;
-        calc_leash_length_z();
+    // exit immediately if no change in acceleration
+    if (is_equal(_accel_z_cms, accel_cmss)) {
+        return;
     }
+
+    _accel_z_cms = accel_cmss;
+    _flags.recalc_leash_z = true;
+    calc_leash_length_z();
 }
 
 /// set_alt_target_with_slew - adjusts target towards a final altitude target
@@ -595,10 +632,30 @@ void AC_PosControl::run_z_controller()
         _pid_accel_z.imax(_motors.get_throttle_hover() * 1000.0f);
     }
 
-    float thr_out = _pid_accel_z.update_all(_accel_target.z, z_accel_meas, (_motors.limit.throttle_lower || _motors.limit.throttle_upper)) * 0.001f +_motors.get_throttle_hover();
+    float thr_out;
+    if (_vibe_comp_enabled) {
+        _flags.freeze_ff_z = true;
+        _accel_desired.z = 0.0f;
+        const float thr_per_accelz_cmss = _motors.get_throttle_hover() / (GRAVITY_MSS * 100.0f);
+        // during vibration compensation use feed forward with manually calculated gain
+        // ToDo: clear pid_info P, I and D terms for logging
+        if (!(_motors.limit.throttle_lower || _motors.limit.throttle_upper) || ((is_positive(_pid_accel_z.get_i()) && is_negative(_vel_error.z)) || (is_negative(_pid_accel_z.get_i()) && is_positive(_vel_error.z)))) {
+            _pid_accel_z.set_integrator(_pid_accel_z.get_i() + _dt * thr_per_accelz_cmss * 1000.0f * _vel_error.z * _p_vel_z.kP() * POSCONTROL_VIBE_COMP_I_GAIN);
+        }
+        thr_out = POSCONTROL_VIBE_COMP_P_GAIN * thr_per_accelz_cmss * _accel_target.z + _pid_accel_z.get_i() * 0.001f;
+    } else {
+        thr_out = _pid_accel_z.update_all(_accel_target.z, z_accel_meas, (_motors.limit.throttle_lower || _motors.limit.throttle_upper)) * 0.001f;
+    }
+    thr_out += _motors.get_throttle_hover();
 
     // send throttle to attitude controller with angle boost
     _attitude_control.set_throttle_out(thr_out, true, POSCONTROL_THROTTLE_CUTOFF_FREQ);
+
+    // _speed_down_cms is checked to be non-zero when set
+    float error_ratio = _vel_error.z/_speed_down_cms;
+
+    _vel_z_control_ratio += _dt*0.1f*(0.5-error_ratio);
+    _vel_z_control_ratio = constrain_float(_vel_z_control_ratio, 0.0f, 2.0f);
 }
 
 ///
@@ -608,21 +665,26 @@ void AC_PosControl::run_z_controller()
 /// set_max_accel_xy - set the maximum horizontal acceleration in cm/s/s
 void AC_PosControl::set_max_accel_xy(float accel_cmss)
 {
-    if (fabsf(_accel_cms - accel_cmss) > 1.0f) {
-        _accel_cms = accel_cmss;
-        _flags.recalc_leash_xy = true;
-        calc_leash_length_xy();
+    // return immediately if no change
+    if (is_equal(_accel_cms, accel_cmss)) {
+        return;
     }
+    _accel_cms = accel_cmss;
+    _flags.recalc_leash_xy = true;
+    calc_leash_length_xy();
 }
 
 /// set_max_speed_xy - set the maximum horizontal speed maximum in cm/s
 void AC_PosControl::set_max_speed_xy(float speed_cms)
 {
-    if (fabsf(_speed_cms - speed_cms) > 1.0f) {
-        _speed_cms = speed_cms;
-        _flags.recalc_leash_xy = true;
-        calc_leash_length_xy();
+    // return immediately if no change in speed
+    if (is_equal(_speed_cms, speed_cms)) {
+        return;
     }
+
+    _speed_cms = speed_cms;
+    _flags.recalc_leash_xy = true;
+    calc_leash_length_xy();
 }
 
 /// set_pos_target in cm from home
@@ -758,6 +820,25 @@ void AC_PosControl::init_xy_controller()
     // flag reset required in rate to accel step
     _flags.reset_desired_vel_to_pos = true;
     _flags.reset_accel_to_lean_xy = true;
+
+    // initialise ekf xy reset handler
+    init_ekf_xy_reset();
+}
+
+/// standby_xyz_reset - resets I terms and removes position error
+///     This function will let Loiter and Alt Hold continue to operate
+///     in the event that the flight controller is in control of the
+///     aircraft when in standby.
+void AC_PosControl::standby_xyz_reset()
+{
+    // Set _pid_accel_z integrator to zero.
+    _pid_accel_z.set_integrator(0.0f);
+
+    // Set the target position to the current pos.
+    _pos_target = _inav.get_position();
+
+    // Set _pid_vel_xy integrators and derivative to zero.
+    _pid_vel_xy.reset_filter();
 
     // initialise ekf xy reset handler
     init_ekf_xy_reset();

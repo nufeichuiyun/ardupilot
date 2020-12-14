@@ -17,7 +17,6 @@ public:
     static AP_Arming *get_singleton();
 
     enum ArmingChecks {
-        ARMING_CHECK_NONE        = 0x0000,
         ARMING_CHECK_ALL         = (1U << 0),
         ARMING_CHECK_BARO        = (1U << 1),
         ARMING_CHECK_COMPASS     = (1U << 2),
@@ -134,12 +133,16 @@ protected:
     bool servo_checks(bool report) const;
     bool rc_checks_copter_sub(bool display_failure, const RC_Channel *channels[4]) const;
 
+    // mandatory checks that cannot be bypassed.  This function will only be called if ARMING_CHECK is zero or arming forced
+    virtual bool mandatory_checks(bool report) { return true; }
+
     // returns true if a particular check is enabled
     bool check_enabled(const enum AP_Arming::ArmingChecks check) const;
     // returns a mavlink severity which should be used if a specific check fails
     MAV_SEVERITY check_severity(const enum AP_Arming::ArmingChecks check) const;
     // handle the case where a check fails
     void check_failed(const enum AP_Arming::ArmingChecks check, bool report, const char *fmt, ...) const FMT_PRINTF(4, 5);
+    void check_failed(bool report, const char *fmt, ...) const FMT_PRINTF(3, 4);
 
     void Log_Write_Arm_Disarm();
 

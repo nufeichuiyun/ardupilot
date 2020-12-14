@@ -19,11 +19,41 @@
   parameters needed by multiple libraries
  */
 
-#include <AP_Param/AP_Param.h>
+#include "ModeReason.h" // reasons can't be defined in this header due to circular loops
 
-class AP_Vehicle {
+#include <AP_Baro/AP_Baro.h>
+#include <AP_BoardConfig/AP_BoardConfig.h>     // board configuration library
+#include <AP_BoardConfig/AP_BoardConfig_CAN.h>
+#include <AP_Button/AP_Button.h>
+#include <AP_GPS/AP_GPS.h>
+#include <AP_Logger/AP_Logger.h>
+#include <AP_Notify/AP_Notify.h>                    // Notify library
+#include <AP_Param/AP_Param.h>
+#include <AP_Relay/AP_Relay.h>                      // APM relay
+#include <AP_RSSI/AP_RSSI.h>                        // RSSI Library
+#include <AP_SerialManager/AP_SerialManager.h>      // Serial manager library
+#include <AP_ServoRelayEvents/AP_ServoRelayEvents.h>
+#include <AP_Hott_Telem/AP_Hott_Telem.h>
+
+class AP_Vehicle : public AP_HAL::HAL::Callbacks {
 
 public:
+
+    AP_Vehicle() {
+        if (_singleton) {
+            AP_HAL::panic("Too many Vehicles");
+        }
+        _singleton = this;
+    }
+
+    /* Do not allow copies */
+    AP_Vehicle(const AP_Vehicle &other) = delete;
+    AP_Vehicle &operator=(const AP_Vehicle&) = delete;
+
+    static AP_Vehicle *get_singleton();
+
+    bool virtual set_mode(const uint8_t new_mode, const ModeReason reason) = 0;
+
     /*
       common parameters for fixed wing aircraft
      */
@@ -76,7 +106,54 @@ public:
     struct MultiCopter {
         AP_Int16 angle_max;
     };
+
+protected:
+
+    // board specific config
+    AP_BoardConfig BoardConfig;
+
+#if HAL_WITH_UAVCAN
+    // board specific config for CAN bus
+    AP_BoardConfig_CAN BoardConfig_CAN;
+#endif
+
+    // sensor drivers
+    AP_GPS gps;
+    AP_Baro barometer;
+    Compass compass;
+    AP_InertialSensor ins;
+    AP_Button button;
+    RangeFinder rangefinder;
+
+    AP_RSSI rssi;
+
+    AP_SerialManager serial_manager;
+
+    AP_Relay relay;
+
+    AP_ServoRelayEvents ServoRelayEvents;
+
+    // notification object for LEDs, buzzers etc (parameter set to
+    // false disables external leds)
+    AP_Notify notify;
+
+#if HAL_HOTT_TELEM_ENABLED
+    AP_Hott_Telem hott_telem;
+#endif
+
+    // called from each vehicle
+    void vehicle_setup(void);
+
+private:
+
+    static AP_Vehicle *_singleton;
+
 };
 
+namespace AP {
+    AP_Vehicle *vehicle();
+};
+
+extern const AP_HAL::HAL& hal;
 
 #include "AP_Vehicle_Type.h"

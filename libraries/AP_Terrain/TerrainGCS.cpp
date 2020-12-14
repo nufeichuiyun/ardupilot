@@ -39,6 +39,10 @@ bool AP_Terrain::request_missing(mavlink_channel_t chan, struct grid_cache &gcac
 {
     struct grid_block &grid = gcache.grid;
 
+    if (options.get() & uint16_t(Options::DisableDownload)) {
+        return false;
+    }
+
     if (grid.spacing != grid_spacing) {
         // an invalid grid
         return false;
@@ -149,7 +153,7 @@ void AP_Terrain::send_request(mavlink_channel_t chan)
 /*
   count bits in a uint64_t
 */
-uint8_t AP_Terrain::bitcount64(uint64_t b)
+uint8_t AP_Terrain::bitcount64(uint64_t b) const
 {
     return __builtin_popcount((unsigned)(b&0xFFFFFFFF)) + __builtin_popcount((unsigned)(b>>32));
 }
@@ -157,7 +161,7 @@ uint8_t AP_Terrain::bitcount64(uint64_t b)
 /*
   get some statistics for TERRAIN_REPORT
 */
-void AP_Terrain::get_statistics(uint16_t &pending, uint16_t &loaded)
+void AP_Terrain::get_statistics(uint16_t &pending, uint16_t &loaded) const
 {
     pending = 0;
     loaded = 0;
@@ -263,8 +267,8 @@ void AP_Terrain::handle_terrain_data(const mavlink_message_t &msg)
 
     uint16_t i;
     for (i=0; i<cache_size; i++) {
-        if (cache[i].grid.lat == packet.lat && 
-            cache[i].grid.lon == packet.lon && 
+        if (TERRAIN_LATLON_EQUAL(cache[i].grid.lat,packet.lat) &&
+            TERRAIN_LATLON_EQUAL(cache[i].grid.lon,packet.lon) &&
             cache[i].grid.spacing == packet.grid_spacing &&
             grid_spacing == packet.grid_spacing &&
             packet.gridbit < 56) {

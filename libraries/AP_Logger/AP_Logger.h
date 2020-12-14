@@ -4,6 +4,9 @@
 #pragma once
 
 #include <AP_HAL/AP_HAL.h>
+#include <AP_AHRS/AP_AHRS.h>
+#include <AP_AHRS/AP_AHRS_DCM.h>
+#include <AP_AHRS/AP_AHRS_NavEKF.h>
 #include <AP_Common/AP_Common.h>
 #include <AP_Param/AP_Param.h>
 #include <AP_InertialSensor/AP_InertialSensor.h>
@@ -15,6 +18,7 @@
 #include <AP_Beacon/AP_Beacon.h>
 #include <AP_Proximity/AP_Proximity.h>
 #include <AP_InertialSensor/AP_InertialSensor_Backend.h>
+#include <AP_Vehicle/ModeReason.h>
 
 #include <stdint.h>
 
@@ -85,6 +89,8 @@ enum Log_Event : uint8_t {
     DATA_ZIGZAG_STORE_A = 71,
     DATA_ZIGZAG_STORE_B = 72,
     DATA_LAND_REPO_ACTIVE = 73,
+    DATA_STANDBY_ENABLE = 74,
+    DATA_STANDBY_DISABLE = 75,
 
     DATA_SURFACED = 163,
     DATA_NOT_SURFACED = 164,
@@ -121,6 +127,7 @@ enum class LogErrorSubsystem : uint8_t {
     FAILSAFE_SENSORS = 26,
     FAILSAFE_LEAK = 27,
     PILOT_INPUT = 28,
+    FAILSAFE_VIBE = 29,
 };
 
 // bizarrely this enumeration has lots of duplicate values, offering
@@ -239,8 +246,8 @@ public:
     void Write_Rally();
     void Write_Baro(uint64_t time_us=0);
     void Write_Power(void);
-    void Write_AHRS2(AP_AHRS &ahrs);
-    void Write_POS(AP_AHRS &ahrs);
+    void Write_AHRS2();
+    void Write_POS();
     void Write_Radio(const mavlink_radio_t &packet);
     void Write_Message(const char *message);
     void Write_MessageF(const char *fmt, ...);
@@ -248,11 +255,13 @@ public:
     void Write_Camera(const Location &current_loc, uint64_t timestamp_us=0);
     void Write_Trigger(const Location &current_loc);
     void Write_ESC(uint8_t id, uint64_t time_us, int32_t rpm, uint16_t voltage, uint16_t current, int16_t temperature, uint16_t current_tot);
-    void Write_Attitude(AP_AHRS &ahrs, const Vector3f &targets);
+    void Write_ServoStatus(uint64_t time_us, uint8_t id, float position, float force, float speed, uint8_t power_pct);
+    void Write_ESCStatus(uint64_t time_us, uint8_t id, uint32_t error_count, float voltage, float current, float temperature, int32_t rpm, uint8_t power_pct);
+    void Write_Attitude(const Vector3f &targets);
     void Write_AttitudeView(AP_AHRS_View &ahrs, const Vector3f &targets);
     void Write_Current();
     void Write_Compass(uint64_t time_us=0);
-    void Write_Mode(uint8_t mode, uint8_t reason);
+    void Write_Mode(uint8_t mode, const ModeReason reason);
 
     void Write_EntireMission();
     void Write_Command(const mavlink_command_int_t &packet, MAV_RESULT result, bool was_command_long=false);
@@ -273,7 +282,7 @@ public:
     void Write_Proximity(AP_Proximity &proximity);
     void Write_SRTL(bool active, uint16_t num_points, uint16_t max_points, uint8_t action, const Vector3f& point);
     void Write_OABendyRuler(bool active, float target_yaw, float margin, const Location &final_dest, const Location &oa_dest);
-    void Write_OADijkstra(uint8_t state, uint8_t curr_point, uint8_t tot_points, const Location &final_dest, const Location &oa_dest);
+    void Write_OADijkstra(uint8_t state, uint8_t error_id, uint8_t curr_point, uint8_t tot_points, const Location &final_dest, const Location &oa_dest);
 
     void Write(const char *name, const char *labels, const char *fmt, ...);
     void Write(const char *name, const char *labels, const char *units, const char *mults, const char *fmt, ...);
@@ -404,6 +413,7 @@ private:
         const char *units;
         const char *mults;
     } *log_write_fmts;
+    HAL_Semaphore_Recursive log_write_fmts_sem;
 
     // return (possibly allocating) a log_write_fmt for a name
     struct log_write_fmt *msg_fmt_for_name(const char *name, const char *labels, const char *units, const char *mults, const char *fmt);

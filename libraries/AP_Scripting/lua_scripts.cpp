@@ -16,6 +16,7 @@
 #include "lua_scripts.h"
 #include <AP_HAL/AP_HAL.h>
 #include <GCS_MAVLink/GCS.h>
+#include "AP_Scripting.h"
 #include <AP_ROMFS/AP_ROMFS.h>
 
 #include "lua_generated_bindings.h"
@@ -333,7 +334,7 @@ void lua_scripts::run(void) {
 
     // load the sandbox creation function
     uint32_t sandbox_size;
-    char *sandbox_data = (char *)AP_ROMFS::find_decompress("sandbox.lua", sandbox_size);
+    const char *sandbox_data = (const char *)AP_ROMFS::find_decompress("sandbox.lua", sandbox_size);
     if (sandbox_data == nullptr) {
         gcs().send_text(MAV_SEVERITY_CRITICAL, "Scripting: Could not find sandbox");
         return;
@@ -343,12 +344,12 @@ void lua_scripts::run(void) {
         gcs().send_text(MAV_SEVERITY_CRITICAL, "Scripting: Loading sandbox: %s", lua_tostring(L, -1));
         return;
     }
-    free(sandbox_data);
+    AP_ROMFS::free((const uint8_t *)sandbox_data);
 
     // Scan the filesystem in an appropriate manner and autostart scripts
     load_all_scripts_in_dir(L, SCRIPTING_DIRECTORY);
 
-    while (true) {
+    while (AP_Scripting::get_singleton()->enabled()) {
 #if defined(AP_SCRIPTING_CHECKS) && AP_SCRIPTING_CHECKS >= 1
         if (lua_gettop(L) != 0) {
             AP_HAL::panic("Lua: Stack should be empty before running scripts");

@@ -78,15 +78,17 @@ void AP_BoardConfig::board_setup_drivers(void)
     // run board auto-detection
     board_autodetect();
 
+#if HAL_HAVE_IMU_HEATER
     if (state.board_type == PX4_BOARD_PH2SLIM ||
         state.board_type == PX4_BOARD_PIXHAWK2) {
-        _imu_target_temperature.set_default(45);
-        if (_imu_target_temperature.get() < 0) {
+        heater.imu_target_temperature.set_default(45);
+        if (heater.imu_target_temperature.get() < 0) {
             // don't allow a value of -1 on the cube, or it could cook
             // the IMU
-            _imu_target_temperature.set(45);
+            heater.imu_target_temperature.set(45);
         }
     }
+#endif
 
     px4_configured_board = (enum px4_board_type)state.board_type.get();
 
@@ -271,9 +273,11 @@ void AP_BoardConfig::check_cubeblack(void)
 
     bool success = true;
     if (!spi_check_register("mpu9250", MPUREG_WHOAMI, MPU_WHOAMI_MPU9250)) { success = false; }
-    if (!spi_check_register("mpu9250_ext", MPUREG_WHOAMI, MPU_WHOAMI_MPU9250)) { success = false; }
-    if (!spi_check_register("lsm9ds0_ext_g", LSMREG_WHOAMI, LSM_WHOAMI_L3GD20)) { success = false; }
-    if (!spi_check_register("lsm9ds0_ext_am", LSMREG_WHOAMI, LSM_WHOAMI_LSM303D)) { success = false; }
+    if (!spi_check_register("mpu9250_ext", MPUREG_WHOAMI, MPU_WHOAMI_MPU9250) &&
+        !spi_check_register("icm20602_ext", MPUREG_WHOAMI, MPU_WHOAMI_ICM20602)) { success = false; }
+    if (!(spi_check_register("lsm9ds0_ext_g", LSMREG_WHOAMI, LSM_WHOAMI_L3GD20) && 
+          spi_check_register("lsm9ds0_ext_am", LSMREG_WHOAMI, LSM_WHOAMI_LSM303D)) &&
+        !spi_check_register("icm20948_ext", INV2REG_WHOAMI, INV2_WHOAMI_ICM20948)) { success = false; }
     if (!check_ms5611("ms5611")) { success = false; }
     if (!check_ms5611("ms5611_ext")) { success = false; }
 

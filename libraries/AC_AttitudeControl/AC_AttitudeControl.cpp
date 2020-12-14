@@ -92,7 +92,7 @@ const AP_Param::GroupInfo AC_AttitudeControl::var_info[] = {
     // @Param: ANG_YAW_P
     // @DisplayName: Yaw axis angle controller P gain
     // @Description: Yaw axis angle controller P gain.  Converts the error between the desired yaw angle and actual angle to a desired yaw rate
-    // @Range: 3.000 6.000
+    // @Range: 3.000 12.000
     // @Range{Sub}: 0.0 6.000
     // @User: Standard
     AP_SUBGROUPINFO(_p_angle_yaw, "ANG_YAW_", 15, AC_AttitudeControl, AC_P),
@@ -669,14 +669,15 @@ void AC_AttitudeControl::attitude_controller_run_quat()
     Quaternion desired_ang_vel_quat = to_to_from_quat.inverse() * attitude_target_ang_vel_quat * to_to_from_quat;
 
     // Correct the thrust vector and smoothly add feedforward and yaw input
+    _feedforward_scalar = 1.0f;
     if (_thrust_error_angle > AC_ATTITUDE_THRUST_ERROR_ANGLE * 2.0f) {
         _rate_target_ang_vel.z = _ahrs.get_gyro().z;
     } else if (_thrust_error_angle > AC_ATTITUDE_THRUST_ERROR_ANGLE) {
-        float feedforward_scalar = (1.0f - (_thrust_error_angle - AC_ATTITUDE_THRUST_ERROR_ANGLE) / AC_ATTITUDE_THRUST_ERROR_ANGLE);
-        _rate_target_ang_vel.x += desired_ang_vel_quat.q2 * feedforward_scalar;
-        _rate_target_ang_vel.y += desired_ang_vel_quat.q3 * feedforward_scalar;
+        _feedforward_scalar = (1.0f - (_thrust_error_angle - AC_ATTITUDE_THRUST_ERROR_ANGLE) / AC_ATTITUDE_THRUST_ERROR_ANGLE);
+        _rate_target_ang_vel.x += desired_ang_vel_quat.q2 * _feedforward_scalar;
+        _rate_target_ang_vel.y += desired_ang_vel_quat.q3 * _feedforward_scalar;
         _rate_target_ang_vel.z += desired_ang_vel_quat.q4;
-        _rate_target_ang_vel.z = _ahrs.get_gyro().z * (1.0 - feedforward_scalar) + _rate_target_ang_vel.z * feedforward_scalar;
+        _rate_target_ang_vel.z = _ahrs.get_gyro().z * (1.0 - _feedforward_scalar) + _rate_target_ang_vel.z * _feedforward_scalar;
     } else {
         _rate_target_ang_vel.x += desired_ang_vel_quat.q2;
         _rate_target_ang_vel.y += desired_ang_vel_quat.q3;
@@ -709,6 +710,9 @@ void AC_AttitudeControl::thrust_heading_rotation_angles(Quaternion& att_to_quat,
     Matrix3f att_from_rot_matrix; // rotation from the current body frame to the inertial frame.
     att_from_quat.rotation_matrix(att_from_rot_matrix);
     Vector3f att_from_thrust_vec = att_from_rot_matrix * Vector3f(0.0f, 0.0f, 1.0f);
+
+    // the dot product is used to calculate the current lean angle for use of external functions
+    _thrust_angle = acosf(constrain_float(Vector3f(0.0f,0.0f,1.0f) * att_from_thrust_vec,-1.0f,1.0f));
 
     // the cross product of the desired and target thrust vector defines the rotation vector
     Vector3f thrust_vec_cross = att_from_thrust_vec % att_to_thrust_vec;

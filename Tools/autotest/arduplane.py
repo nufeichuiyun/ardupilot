@@ -5,18 +5,13 @@ from __future__ import print_function
 import math
 import os
 
-import pexpect
 from pymavlink import quaternion
 from pymavlink import mavutil
-
-from pysim import util
 
 from common import AutoTest
 from common import AutoTestTimeoutException
 from common import NotAchievedException
 from common import PreconditionFailedException
-
-from MAVProxy.modules.lib import mp_util
 
 # get location of scripts
 testdir = os.path.dirname(os.path.realpath(__file__))
@@ -86,8 +81,7 @@ class AutoTestPlane(AutoTest):
         if alt_max is None:
             alt_max = alt + 30
 
-        self.mavproxy.send('switch 4\n')
-        self.wait_mode('FBWA')
+        self.change_mode("FBWA")
 
         self.wait_ready_to_arm()
         self.arm_vehicle()
@@ -551,6 +545,56 @@ class AutoTestPlane(AutoTest):
 
         self.fly_home_land_and_disarm()
 
+    def fly_deepstall(self):
+#        self.fly_deepstall_absolute()
+        self.fly_deepstall_relative()
+
+    def fly_deepstall_absolute(self):
+        self.start_subtest("DeepStall Relative Absolute")
+        self.set_parameter("LAND_TYPE", 1)
+        deepstall_elevator_pwm = 1661
+        self.set_parameter("LAND_DS_ELEV_PWM", deepstall_elevator_pwm)
+        self.load_mission("plane-deepstall-mission.txt")
+        self.change_mode("AUTO")
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.progress("Waiting for deepstall messages")
+
+        self.wait_text("Deepstall: Entry: ", timeout=240)
+
+        # assume elevator is on channel 2:
+        self.wait_servo_channel_value(2, deepstall_elevator_pwm)
+
+        self.disarm_wait(timeout=120)
+
+        self.progress("Flying home")
+        self.takeoff(10)
+        self.set_parameter("LAND_TYPE", 0)
+        self.fly_home_land_and_disarm()
+
+    def fly_deepstall_relative(self):
+        self.start_subtest("DeepStall Relative")
+        self.set_parameter("LAND_TYPE", 1)
+        deepstall_elevator_pwm = 1661
+        self.set_parameter("LAND_DS_ELEV_PWM", deepstall_elevator_pwm)
+        self.load_mission("plane-deepstall-relative-mission.txt")
+        self.change_mode("AUTO")
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+        self.progress("Waiting for deepstall messages")
+
+        self.wait_text("Deepstall: Entry: ", timeout=240)
+
+        # assume elevator is on channel 2:
+        self.wait_servo_channel_value(2, deepstall_elevator_pwm)
+
+        self.disarm_wait(timeout=120)
+
+        self.progress("Flying home")
+        self.takeoff(10)
+        self.set_parameter("LAND_TYPE", 0)
+        self.fly_home_land_and_disarm()
+
     def fly_do_change_speed(self):
         # the following lines ensure we revert these parameter values
         # - DO_CHANGE_AIRSPEED is a permanent vehicle change!
@@ -693,7 +737,6 @@ class AutoTestPlane(AutoTest):
             self.wait_mode('AUTO')
             self.wait_ready_to_arm()
             self.arm_vehicle()
-            tstart = self.get_sim_time_cached()
             last_mission_current_msg = 0
             last_seq = None
             while self.armed():
@@ -814,6 +857,8 @@ class AutoTestPlane(AutoTest):
 #            raise NotAchievedException("Sensor healthy when it shouldn't be")
         self.set_parameter("SIM_RC_FAIL", 0)
         self.drain_mav_unparsed()
+        # have to allow time for RC to be fetched from SITL
+        self.delay_sim_time(0.5)
         m = self.mav.recv_match(type='SYS_STATUS', blocking=True)
         self.progress("Testing receiver enabled")
         if (not (m.onboard_control_sensors_enabled & receiver_bit)):
@@ -844,9 +889,11 @@ class AutoTestPlane(AutoTest):
             raise NotAchievedException("Sensor healthy when it shouldn't be")
         self.progress("Making RC work again")
         self.set_parameter("SIM_RC_FAIL", 0)
+        # have to allow time for RC to be fetched from SITL
         self.progress("Giving receiver time to recover")
-        for i in range(1, 10):
-            m = self.mav.recv_match(type='SYS_STATUS', blocking=True)
+        self.delay_sim_time(0.5)
+        self.drain_mav_unparsed()
+        m = self.mav.recv_match(type='SYS_STATUS', blocking=True)
         self.progress("Testing receiver enabled")
         if (not (m.onboard_control_sensors_enabled & receiver_bit)):
             raise NotAchievedException("Receiver not enabled")
@@ -955,7 +1002,6 @@ class AutoTestPlane(AutoTest):
             here = self.mav.location()
             got_radius = self.get_distance(loc, here)
             average_radius = 0.95*average_radius + 0.05*got_radius
-            now = self.get_sim_time()
             on_radius = abs(got_radius - want_radius) < epsilon
             m = self.mav.recv_match(type='VFR_HUD', blocking=True)
             heading = m.heading
@@ -1104,14 +1150,6 @@ class AutoTestPlane(AutoTest):
         self.test_fence_breach_circle_at(self.home_position_as_mav_location(),
                                          disable_on_breach=True)
 
-    def location_offset_ne(self, location, north, east):
-        '''move location in metres'''
-        print("old: %f %f" % (location.lat, location.lng))
-        (lat, lng) = mp_util.gps_offset(location.lat, location.lng, east, north)
-        location.lat = lat
-        location.lng = lng
-        print("new: %f %f" % (location.lat, location.lng))
-
     def test_fence_rtl_rally(self):
         ex = None
         target_system = 1
@@ -1191,7 +1229,7 @@ class AutoTestPlane(AutoTest):
         self.change_mode('MANUAL')
 
         # grab home position:
-        m = self.mav.recv_match(type='HOME_POSITION', blocking=True)
+        self.mav.recv_match(type='HOME_POSITION', blocking=True)
         self.homeloc = self.mav.location()
 
         self.run_subtest("Takeoff", self.takeoff)
@@ -1245,6 +1283,7 @@ class AutoTestPlane(AutoTest):
         ex = None
         self.context_push()
         self.progress("Making sure we don't ordinarily get RANGEFINDER")
+        m = None
         try:
             m = self.mav.recv_match(type='RANGEFINDER',
                                     blocking=True,
@@ -1267,7 +1306,6 @@ class AutoTestPlane(AutoTest):
             self.change_mode('AUTO')
             self.wait_ready_to_arm()
             self.arm_vehicle()
-            home = self.poll_home_position()
             self.wait_waypoint(5, 5, max_dist=100)
             rf = self.mav.recv_match(type="RANGEFINDER", timeout=1, blocking=True)
             if rf is None:
@@ -1343,7 +1381,7 @@ class AutoTestPlane(AutoTest):
         # message ADSB_VEHICLE 37 -353632614 1491652305 0 584070 0 0 0 "bob" 3 1 255 17
         self.set_parameter("ADSB_ENABLE", 1)
         self.set_parameter("AVD_ENABLE", 1)
-        self.delay_sim_time(1) # TODO: work out why this is required...
+        self.delay_sim_time(2) # TODO: work out why this is required...
         self.mav.mav.adsb_vehicle_send(37, # ICAO address
                                        int(here.lat * 1e7),
                                        int(here.lng * 1e7),
@@ -1359,7 +1397,7 @@ class AutoTestPlane(AutoTest):
                                        17 # squawk
         )
         self.progress("Waiting for collision message")
-        m = self.mav.recv_match(type='COLLISION', blocking=True, timeout=2)
+        m = self.mav.recv_match(type='COLLISION', blocking=True, timeout=4)
         if m is None:
             raise NotAchievedException("Did not get collision message")
         if m.threat_level != 2:
@@ -1425,6 +1463,14 @@ class AutoTestPlane(AutoTest):
             ("ADSB",
              "Test ADSB",
              self.test_adsb),
+
+            ("AdvancedFailsafe",
+             "Test Advanced Failsafe",
+             self.test_advanced_failsafe),
+
+            ("DeepStall",
+             "Test DeepStall Landing",
+             self.fly_deepstall),
 
             ("LogDownLoad",
              "Log download",

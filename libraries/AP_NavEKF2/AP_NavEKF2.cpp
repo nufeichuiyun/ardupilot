@@ -574,6 +574,14 @@ const AP_Param::GroupInfo NavEKF2::var_info[] = {
     // @Units: mGauss
     AP_GROUPINFO("MAG_EF_LIM", 52, NavEKF2, _mag_ef_limit, 50),
     
+    // @Param: HRT_FILT
+    // @DisplayName: Height rate filter crossover frequency
+    // @Description: Specifies the crossover frequency of the complementary filter used to calculate the output predictor height rate derivative.
+    // @Range: 0.1 30.0
+    // @Units: Hz
+    // @RebootRequired: False
+    AP_GROUPINFO("HRT_FILT", 53, NavEKF2, _hrt_filt_freq, 2.0f),
+
     AP_GROUPEND
 };
 
@@ -660,16 +668,17 @@ bool NavEKF2::InitialiseFilter(void)
             gcs().send_text(MAV_SEVERITY_CRITICAL, "NavEKF2: allocation failed");
             return false;
         }
+
+        //Call Constructors on all cores
         for (uint8_t i = 0; i < num_cores; i++) {
-            //Call Constructors
-            new (&core[i]) NavEKF2_core();
+            new (&core[i]) NavEKF2_core(this);
         }
 
         // set the IMU index for the cores
         num_cores = 0;
         for (uint8_t i=0; i<7; i++) {
             if (_imuMask & (1U<<i)) {
-                if(!core[num_cores].setup_core(this, i, num_cores)) {
+                if(!core[num_cores].setup_core(i, num_cores)) {
                     return false;
                 }
                 num_cores++;
@@ -1095,14 +1104,14 @@ bool NavEKF2::getOriginLLH(int8_t instance, struct Location &loc) const
 // Returns false if the filter has rejected the attempt to set the origin
 bool NavEKF2::setOriginLLH(const Location &loc)
 {
+    if (!core) {
+        return false;
+    }
     if (_fusionModeGPS != 3) {
         // we don't allow setting of the EKF origin unless we are
         // flying in non-GPS mode. This is to prevent accidental set
         // of EKF origin with invalid position or height
         gcs().send_text(MAV_SEVERITY_WARNING, "EKF2 refusing set origin");
-        return false;
-    }
-    if (!core) {
         return false;
     }
     bool ret = false;
@@ -1446,7 +1455,7 @@ uint32_t NavEKF2::getLastVelNorthEastReset(Vector2f &vel) const
 const char *NavEKF2::prearm_failure_reason(void) const
 {
     if (!core) {
-        return nullptr;
+        return "no EKF2 cores";
     }
     for (uint8_t i = 0; i < num_cores; i++) {
         const char * failure = core[i].prearm_failure_reason();

@@ -132,12 +132,12 @@ bool Rover::ekf_position_ok()
     nav_filter_status filt_status;
     rover.ahrs.get_filter_status(filt_status);
 
-    // if disarmed we accept a predicted horizontal position
+    // if disarmed we accept a predicted horizontal absolute or relative position
     if (!arming.is_armed()) {
-        return ((filt_status.flags.horiz_pos_abs || filt_status.flags.pred_horiz_pos_abs));
+        return (filt_status.flags.horiz_pos_abs || filt_status.flags.pred_horiz_pos_abs || filt_status.flags.horiz_pos_rel || filt_status.flags.pred_horiz_pos_rel);
     } else {
-        // once armed we require a good absolute position and EKF must not be in const_pos_mode
-        return (filt_status.flags.horiz_pos_abs && !filt_status.flags.const_pos_mode);
+        // once armed we require a good absolute or relative position and EKF must not be in const_pos_mode
+        return ((filt_status.flags.horiz_pos_abs || filt_status.flags.horiz_pos_rel) && !filt_status.flags.const_pos_mode);
     }
 }
 
@@ -167,7 +167,7 @@ void Rover::failsafe_ekf_event()
             break;
         case FS_EFK_HOLD:
         default:
-            set_mode(mode_hold, MODE_REASON_EKF_FAILSAFE);
+            set_mode(mode_hold, ModeReason::EKF_FAILSAFE);
             break;
     }
 }

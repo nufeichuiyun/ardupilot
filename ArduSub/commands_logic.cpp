@@ -216,7 +216,7 @@ void Sub::exit_mission()
 
     // Try to enter loiter, if that fails, go to depth hold
     if (!auto_loiter_start()) {
-        set_mode(ALT_HOLD, MODE_REASON_MISSION_END);
+        set_mode(ALT_HOLD, ModeReason::MISSION_END);
     }
 }
 
@@ -720,7 +720,7 @@ bool Sub::verify_yaw()
     }
 
     // check if we are within 2 degrees of the target heading
-    return (fabsf(wrap_180_cd(ahrs.yaw_sensor-yaw_look_at_heading)) <= 200);
+    return (abs(wrap_180_cd(ahrs.yaw_sensor-yaw_look_at_heading)) <= 200);
 }
 
 /********************************************************************************/

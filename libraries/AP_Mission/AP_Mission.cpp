@@ -163,10 +163,11 @@ bool AP_Mission::starts_with_takeoff_cmd()
 /// start_or_resume - if MIS_AUTORESTART=0 this will call resume(), otherwise it will call start()
 void AP_Mission::start_or_resume()
 {
-    if (_restart) {
+    if (_restart == 1 && !_force_resume) {
         start();
     } else {
         resume();
+        _force_resume = false;
     }
 }
 
@@ -538,6 +539,14 @@ bool AP_Mission::read_cmd_from_storage(uint16_t index, Mission_Command& cmd) con
     }
 
     if (stored_in_location(cmd.id)) {
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+        // NOTE!  no 16-bit command may be stored_in_location as only
+        // 10 bytes are available for storage and lat/lon/alt required
+        // 4*sizeof(float) == 12 bytes of storage.
+        if (b1 == 0) {
+            AP_HAL::panic("May not store location for 16-bit commands");
+        }
+#endif
         // Location is not PACKED; field-wise copy it:
         cmd.content.location.relative_alt = packed_content.location.flags.relative_alt;
         cmd.content.location.loiter_ccw = packed_content.location.flags.loiter_ccw;
@@ -1954,6 +1963,23 @@ bool AP_Mission::contains_item(MAV_CMD command) const
             continue;
         }
         if (tmp.id == command) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/*
+  return true if the mission has a terrain relative item
+ */
+bool AP_Mission::contains_terrain_relative(void) const
+{
+    for (int i = 1; i < num_commands(); i++) {
+        Mission_Command tmp;
+        if (!read_cmd_from_storage(i, tmp)) {
+            continue;
+        }
+        if (stored_in_location(tmp.id) && tmp.content.location.terrain_alt) {
             return true;
         }
     }

@@ -31,7 +31,7 @@ void GCS_MAVLINK::handle_fence_message(const mavlink_message_t &msg)
     switch (msg.msgid) {
     case MAVLINK_MSG_ID_FENCE_POINT:
     case MAVLINK_MSG_ID_FENCE_FETCH_POINT:
-        fence->handle_msg(*this, msg);
+        fence->polyfence().handle_msg(*this, msg);
         break;
     default:
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
@@ -67,6 +67,6 @@ void GCS_MAVLINK::send_fence_status() const
                                   static_cast<int8_t>(fence->get_breaches() != 0),
                                   fence->get_breach_count(),
                                   mavlink_breach_type,
-                                  fence->get_breach_time());
+                                  fence->get_breach_time(),
+                                  0);
 }
-

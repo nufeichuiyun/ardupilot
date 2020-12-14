@@ -47,6 +47,13 @@ const AP_Param::GroupInfo AP_Terrain::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("SPACING",   1, AP_Terrain, grid_spacing, 100),
 
+    // @Param: OPTIONS
+    // @DisplayName: Terrain options
+    // @Description: Options to change behaviour of terrain system
+    // @Bitmask: 0:Disable Download
+    // @User: Advanced
+    AP_GROUPINFO("OPTIONS",   2, AP_Terrain, options, 0),
+    
     AP_GROUPEND
 };
 
@@ -376,7 +383,7 @@ void AP_Terrain::log_terrain_data()
  */
 bool AP_Terrain::allocate(void)
 {
-    if (enable == 0) {
+    if (enable == 0 || memory_alloc_failed) {
         return false;
     }
     if (cache != nullptr) {
@@ -384,8 +391,8 @@ bool AP_Terrain::allocate(void)
     }
     cache = (struct grid_cache *)calloc(TERRAIN_GRID_BLOCK_CACHE_SIZE, sizeof(cache[0]));
     if (cache == nullptr) {
-        enable.set(0);
         gcs().send_text(MAV_SEVERITY_CRITICAL, "Terrain: Allocation failed");
+        memory_alloc_failed = true;
         return false;
     }
     cache_size = TERRAIN_GRID_BLOCK_CACHE_SIZE;

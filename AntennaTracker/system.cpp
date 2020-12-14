@@ -60,9 +60,7 @@ void Tracker::init_tracker()
 #endif
 
 #ifdef ENABLE_SCRIPTING
-    if (!scripting.init()) {
-        gcs().send_text(MAV_SEVERITY_ERROR, "Scripting failed to start");
-    }
+    scripting.init();
 #endif // ENABLE_SCRIPTING
 
     // initialise compass
@@ -110,20 +108,20 @@ void Tracker::init_tracker()
 
     switch (g.initial_mode) {
     case MANUAL:
-        set_mode(MANUAL, MODE_REASON_STARTUP);
+        set_mode(MANUAL, ModeReason::STARTUP);
         break;
 
     case SCAN:
-        set_mode(SCAN, MODE_REASON_STARTUP);
+        set_mode(SCAN, ModeReason::STARTUP);
         break;
 
     case STOP:
-        set_mode(STOP, MODE_REASON_STARTUP);
+        set_mode(STOP, ModeReason::STARTUP);
         break;
 
     case AUTO:
     default:
-        set_mode(AUTO, MODE_REASON_STARTUP);
+        set_mode(AUTO, ModeReason::STARTUP);
         break;
     }
 
@@ -214,7 +212,7 @@ void Tracker::prepare_servos()
     SRV_Channels::output_ch_all();
 }
 
-void Tracker::set_mode(enum ControlMode mode, mode_reason_t reason)
+void Tracker::set_mode(enum ControlMode mode, ModeReason reason)
 {
     if (control_mode == mode) {
         // don't switch modes if we are already in the correct mode.
@@ -243,6 +241,20 @@ void Tracker::set_mode(enum ControlMode mode, mode_reason_t reason)
     nav_status.bearing = ahrs.yaw_sensor * 0.01f;
 }
 
+bool Tracker::set_mode(const uint8_t new_mode, const ModeReason reason)
+{
+    switch (new_mode) {
+    case AUTO:
+    case MANUAL:
+    case SCAN:
+    case SERVO_TEST:
+    case STOP:
+        set_mode((enum ControlMode)new_mode, reason);
+        return true;
+    }
+    return false;
+}
+
 /*
   should we log a message type now?
  */
@@ -253,3 +265,28 @@ bool Tracker::should_log(uint32_t mask)
     }
     return true;
 }
+
+
+#include <AP_Camera/AP_Camera.h>
+#include <AP_AdvancedFailsafe/AP_AdvancedFailsafe.h>
+
+/* dummy methods to avoid having to link against AP_Camera */
+void AP_Camera::control_msg(const mavlink_message_t &) {}
+void AP_Camera::configure(float, float, float, float, float, float, float) {}
+void AP_Camera::control(float, float, float, float, float, float) {}
+void AP_Camera::send_feedback(mavlink_channel_t chan) {}
+void AP_Camera::take_picture() {}
+void AP_Camera::cam_mode_toggle() {}
+void AP_Camera::handle_message(mavlink_channel_t chan, const mavlink_message_t &msg) {}
+AP_Camera *AP_Camera::_singleton;
+namespace AP {
+    AP_Camera *camera() {
+        return nullptr;
+    }
+};
+
+/* end dummy methods to avoid having to link against AP_Camera */
+
+// dummy method to avoid linking AFS
+bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate, const char *reason) {return false;}
+AP_AdvancedFailsafe *AP::advancedfailsafe() { return nullptr; }

@@ -88,7 +88,7 @@ public:
         k_param_scheduler,
         k_param_relay,
         k_param_takeoff_throttle_delay,
-        k_param_skip_gyro_cal, // unused
+        k_param_mode_takeoff, // was skip_gyro_cal
         k_param_auto_fbw_steer,
         k_param_waypoint_max_radius,
         k_param_ground_steer_alt,        
@@ -564,6 +564,14 @@ public:
     AP_Int8 crow_flap_weight_inner;
     AP_Int8 crow_flap_options;
     AP_Int8 crow_flap_aileron_matching;
+
+    // Forward throttle battery voltage compenstaion
+    AP_Float fwd_thr_batt_voltage_max;
+    AP_Float fwd_thr_batt_voltage_min;
+    AP_Int8  fwd_thr_batt_idx;
+
+    // min initial climb in RTL
+    AP_Int16        rtl_climb_min;
 };
 
 extern const AP_Param::Info var_info[];

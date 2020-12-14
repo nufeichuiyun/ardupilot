@@ -12,6 +12,7 @@ userdata Location field loiter_xtrack boolean read write
 userdata Location method get_distance float Location
 userdata Location method offset void float -FLT_MAX FLT_MAX float -FLT_MAX FLT_MAX
 userdata Location method get_vector_from_origin_NEU boolean Vector3f'Null
+userdata Location method get_bearing float Location
 
 include AP_AHRS/AP_AHRS.h
 
@@ -53,6 +54,7 @@ singleton AP_BattMonitor method pack_capacity_mah int32_t uint8_t 0 ud->num_inst
 singleton AP_BattMonitor method has_failsafed boolean
 singleton AP_BattMonitor method overpower_detected boolean uint8_t 0 ud->num_instances()
 singleton AP_BattMonitor method get_temperature boolean float'Null uint8_t 0 ud->num_instances()
+singleton AP_BattMonitor method get_cycle_count boolean uint8_t 0 ud->num_instances() uint16_t'Null
 
 include AP_GPS/AP_GPS.h
 
@@ -103,7 +105,7 @@ userdata Vector2f operator +
 userdata Vector2f operator -
 
 include AP_Notify/AP_Notify.h
-singleton notify alias notify
+singleton AP_Notify alias notify
 singleton AP_Notify method play_tune void string
 
 include AP_RangeFinder/AP_RangeFinder.h
@@ -134,3 +136,19 @@ singleton AP_Relay method toggle void uint8_t 0 AP_RELAY_NUM_RELAYS
 include GCS_MAVLink/GCS.h
 singleton GCS alias gcs
 singleton GCS method send_text void MAV_SEVERITY'enum MAV_SEVERITY_EMERGENCY MAV_SEVERITY_DEBUG "%s"'literal string
+singleton GCS method set_message_interval MAV_RESULT'enum uint8_t 0 MAVLINK_COMM_NUM_BUFFERS uint32_t 0U UINT32_MAX int32_t -1 INT32_MAX
+
+include AP_Vehicle/AP_Vehicle.h
+singleton AP_Vehicle alias vehicle
+singleton AP_Vehicle method set_mode boolean uint8_t 0 UINT8_MAX ModeReason::SCRIPTING'literal
+
+include AP_SerialLED/AP_SerialLED.h
+singleton AP_SerialLED alias serialLED
+singleton AP_SerialLED method set_num_neopixel boolean uint8_t 1 16 uint8_t 0 AP_SERIALLED_MAX_LEDS
+singleton AP_SerialLED method set_num_profiled boolean uint8_t 1 16 uint8_t 0 AP_SERIALLED_MAX_LEDS
+singleton AP_SerialLED method set_RGB void uint8_t 1 16 int8_t -1 INT8_MAX uint8_t 0 UINT8_MAX uint8_t 0 UINT8_MAX uint8_t 0 UINT8_MAX
+singleton AP_SerialLED method send void uint8_t 1 16
+
+include SRV_Channel/SRV_Channel.h
+singleton SRV_Channels alias SRV_Channels
+singleton SRV_Channels method find_channel boolean SRV_Channel::Aux_servo_function_t'enum SRV_Channel::k_none SRV_Channel::k_nr_aux_servo_functions-1 uint8_t'Null

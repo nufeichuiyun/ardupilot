@@ -83,8 +83,17 @@ for t in $CI_BUILD_TARGET; do
         run_autotest "Rover" "build.APMrover2" "drive.APMrover2"
         continue
     fi
+    if [ "$t" == "sitltest-balancebot" ]; then
+        run_autotest "BalanceBot" "build.APMrover2" "drive.BalanceBot"
+        continue
+    fi
     if [ "$t" == "sitltest-sub" ]; then
         run_autotest "Sub" "build.ArduSub" "dive.ArduSub"
+        continue
+    fi
+
+    if [ "$t" == "unit-tests" ]; then
+        run_autotest "Unit Tests" "build.unit_tests" "run.unit_tests"
         continue
     fi
 
@@ -98,11 +107,11 @@ for t in $CI_BUILD_TARGET; do
 
     if [ "$t" == "periph-build" ]; then
         echo "Building f103 bootloader"
-        $waf configure --board f103-periph --bootloader
+        $waf configure --board f103-GPS --bootloader
         $waf clean
         $waf bootloader
         echo "Building f103 peripheral fw"
-        $waf configure --board f103-periph
+        $waf configure --board f103-GPS
         $waf clean
         $waf AP_Periph
         continue
@@ -162,7 +171,8 @@ for t in $CI_BUILD_TARGET; do
                 --check-c-compiler="$c_compiler" \
                 --check-cxx-compiler="$cxx_compiler"
         $waf clean
-        $waf all
+        $waf copter
+        $waf plane
         ccache -s && ccache -z
 
         if [[ $t == linux ]]; then
@@ -171,11 +181,8 @@ for t in $CI_BUILD_TARGET; do
     fi
 done
 
-python Tools/autotest/param_metadata/param_parse.py --vehicle APMrover2
-python Tools/autotest/param_metadata/param_parse.py --vehicle AntennaTracker
 python Tools/autotest/param_metadata/param_parse.py --vehicle ArduCopter
 python Tools/autotest/param_metadata/param_parse.py --vehicle ArduPlane
-python Tools/autotest/param_metadata/param_parse.py --vehicle ArduSub
 
 echo build OK
 exit 0

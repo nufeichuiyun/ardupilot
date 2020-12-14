@@ -488,7 +488,6 @@ def run_in_terminal_window(autotest, name, cmd):
         # on MacOS record the window IDs so we can close them later
         out = subprocess.Popen(runme, stdout=subprocess.PIPE).communicate()[0]
         out = out.decode('utf-8')
-        import re
         p = re.compile('tab 1 of window id (.*)')
 
         tstart = time.time()
@@ -506,7 +505,7 @@ def run_in_terminal_window(autotest, name, cmd):
         else:
             progress("Cannot find %s process terminal" % name)
     else:
-        p = subprocess.Popen(runme)
+        subprocess.Popen(runme)
 
 
 tracker_uarta = None  # blemish
@@ -550,6 +549,7 @@ def start_vehicle(binary, autotest, opts, stuff, loc=None):
         # adding this option allows valgrind to cope with the overload
         # of operator new
         cmd.append("--soname-synonyms=somalloc=nouserintercepts")
+        cmd.append("--track-origins=yes")
     if opts.callgrind:
         cmd_name += " (callgrind)"
         cmd.append("valgrind")
@@ -567,6 +567,19 @@ def start_vehicle(binary, autotest, opts, stuff, loc=None):
         gdb_commands_file.close()
         cmd.extend(["-x", gdb_commands_file.name])
         cmd.append("--args")
+    elif opts.lldb or opts.lldb_stopped:
+        cmd_name += " (lldb)"
+        cmd.append("lldb")
+        lldb_commands_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
+        atexit.register(os.unlink, lldb_commands_file.name)
+
+        for breakpoint in opts.breakpoint:
+            lldb_commands_file.write("b %s\n" % (breakpoint,))
+        if not opts.lldb_stopped:
+            lldb_commands_file.write("process launch\n")
+        lldb_commands_file.close()
+        cmd.extend(["-s", lldb_commands_file.name])
+        cmd.append("--")
     if opts.strace:
         cmd_name += " (strace)"
         cmd.append("strace")
@@ -707,6 +720,8 @@ def start_mavproxy(opts, stuff):
         cmd.append('--console')
     if opts.aircraft is not None:
         cmd.extend(['--aircraft', opts.aircraft])
+    if opts.moddebug:
+        cmd.append('--moddebug=%u' % opts.moddebug)
 
     if opts.fresh_params:
         # these were built earlier:
@@ -842,6 +857,14 @@ group_sim.add_option("-g", "--gdb-stopped",
                      action='store_true',
                      default=False,
                      help="use gdb for debugging ardupilot (no auto-start)")
+group_sim.add_option("--lldb",
+                     action='store_true',
+                     default=False,
+                     help="use lldb for debugging ardupilot")
+group_sim.add_option("--lldb-stopped",
+                     action='store_true',
+                     default=False,
+                     help="use ldb for debugging ardupilot (no auto-start)")
 group_sim.add_option("-d", "--delay-start",
                      default=0,
                      type='float',
@@ -958,6 +981,10 @@ group.add_option("", "--console",
 group.add_option("", "--aircraft",
                  default=None,
                  help="store state and logs in named directory")
+group.add_option("", "--moddebug",
+                 default=0,
+                 type=int,
+                 help="mavproxy module debug")
 parser.add_option_group(group)
 
 cmd_opts, cmd_args = parser.parse_args()
@@ -978,23 +1005,27 @@ if cmd_opts.hil:
     if cmd_opts.callgrind:
         print("May not use callgrind with hil")
         sys.exit(1)
-    if cmd_opts.gdb or cmd_opts.gdb_stopped:
-        print("May not use gdb with hil")
+    if cmd_opts.gdb or cmd_opts.gdb_stopped or cmd_opts.lldb or cmd_opts.lldb_stopped:
+        print("May not use gdb or lldb with hil")
         sys.exit(1)
     if cmd_opts.strace:
         print("May not use strace with hil")
         sys.exit(1)
 
-if cmd_opts.valgrind and (cmd_opts.gdb or cmd_opts.gdb_stopped):
-    print("May not use valgrind with gdb")
+if cmd_opts.valgrind and (cmd_opts.gdb or cmd_opts.gdb_stopped or cmd_opts.lldb or cmd_opts.lldb_stopped):
+    print("May not use valgrind with gdb or lldb")
     sys.exit(1)
 
 if cmd_opts.valgrind and cmd_opts.callgrind:
     print("May not use valgrind with callgrind")
     sys.exit(1)
 
-if cmd_opts.strace and (cmd_opts.gdb or cmd_opts.gdb_stopped):
-    print("May not use strace with gdb")
+if cmd_opts.strace and (cmd_opts.gdb or cmd_opts.gdb_stopped or cmd_opts.lldb or cmd_opts.lldb_stopped):
+    print("May not use strace with gdb or lldb")
+    sys.exit(1)
+
+if (cmd_opts.gdb or cmd_opts.gdb_stopped) and (cmd_opts.lldb or cmd_opts.lldb_stopped):
+    print("May not use lldb with gdb")
     sys.exit(1)
 
 if cmd_opts.strace and cmd_opts.valgrind:

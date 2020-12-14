@@ -20,7 +20,7 @@ const AP_Param::GroupInfo AP_Arming_Plane::var_info[] = {
 bool AP_Arming_Plane::pre_arm_checks(bool display_failure)
 {
     //are arming checks disabled?
-    if (checks_to_perform == ARMING_CHECK_NONE) {
+    if (checks_to_perform == 0) {
         return true;
     }
     if (hal.util->was_watchdog_armed()) {
@@ -38,40 +38,40 @@ bool AP_Arming_Plane::pre_arm_checks(bool display_failure)
     ret &= AP_Arming::airspeed_checks(display_failure);
 
     if (plane.g.fs_timeout_long < plane.g.fs_timeout_short && plane.g.fs_action_short != FS_ACTION_SHORT_DISABLED) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "FS_LONG_TIMEOUT < FS_SHORT_TIMEOUT");
+        check_failed(display_failure, "FS_LONG_TIMEOUT < FS_SHORT_TIMEOUT");
         ret = false;
     }
 
     if (plane.aparm.roll_limit_cd < 300) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "LIM_ROLL_CD too small (%u)", (unsigned)plane.aparm.roll_limit_cd);
+        check_failed(display_failure, "LIM_ROLL_CD too small (%u)", (unsigned)plane.aparm.roll_limit_cd);
         ret = false;
     }
 
     if (plane.aparm.pitch_limit_max_cd < 300) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "LIM_PITCH_MAX too small (%u)", (unsigned)plane.aparm.pitch_limit_max_cd);
+        check_failed(display_failure, "LIM_PITCH_MAX too small (%u)", (unsigned)plane.aparm.pitch_limit_max_cd);
         ret = false;
     }
 
     if (plane.aparm.pitch_limit_min_cd > -300) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "LIM_PITCH_MIN too large (%u)", (unsigned)plane.aparm.pitch_limit_min_cd);
+        check_failed(display_failure, "LIM_PITCH_MIN too large (%u)", (unsigned)plane.aparm.pitch_limit_min_cd);
         ret = false;
     }
 
     if (plane.channel_throttle->get_reverse() && 
-        plane.g.throttle_fs_enabled &&
+        Plane::ThrFailsafe(plane.g.throttle_fs_enabled.get()) != Plane::ThrFailsafe::Disabled &&
         plane.g.throttle_fs_value < 
         plane.channel_throttle->get_radio_max()) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "Invalid THR_FS_VALUE for rev throttle");
+        check_failed(display_failure, "Invalid THR_FS_VALUE for rev throttle");
         ret = false;
     }
 
     if (plane.quadplane.enabled() && !plane.quadplane.available()) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "Quadplane enabled but not running");
+        check_failed(display_failure, "Quadplane enabled but not running");
         ret = false;
     }
 
     if (plane.quadplane.available() && plane.scheduler.get_loop_rate_hz() < 100) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "quadplane needs SCHED_LOOP_RATE >= 100");
+        check_failed(display_failure, "quadplane needs SCHED_LOOP_RATE >= 100");
         ret = false;
     }
 
@@ -88,19 +88,34 @@ bool AP_Arming_Plane::pre_arm_checks(bool display_failure)
         }
     }
 
+#if AP_TERRAIN_AVAILABLE
+    if (plane.g.terrain_follow || plane.mission.contains_terrain_relative()) {
+        // check terrain data is loaded and healthy
+        uint16_t terr_pending=0, terr_loaded=0;
+        plane.terrain.get_statistics(terr_pending, terr_loaded);
+        if (plane.terrain.status() != AP_Terrain::TerrainStatusOK) {
+            check_failed(ARMING_CHECK_PARAMETERS, display_failure, "terrain data unhealthy");
+            ret = false;
+        } else if (terr_pending != 0) {
+            check_failed(ARMING_CHECK_PARAMETERS, display_failure, "waiting for terrain data");
+            ret = false;
+        }
+    }
+#endif
+    
     if (plane.control_mode == &plane.mode_auto && plane.mission.num_commands() <= 1) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "No mission loaded");
+        check_failed(display_failure, "No mission loaded");
         ret = false;
     }
 
     // check adsb avoidance failsafe
     if (plane.failsafe.adsb) {
-        check_failed(ARMING_CHECK_NONE, display_failure, "ADSB threat detected");
+        check_failed(display_failure, "ADSB threat detected");
         ret = false;
     }
 
     if (SRV_Channels::get_emergency_stop()) {
-        check_failed(ARMING_CHECK_NONE, display_failure,"Motors Emergency Stopped");
+        check_failed(display_failure,"Motors Emergency Stopped");
         ret = false;
     }
 
@@ -133,7 +148,7 @@ bool AP_Arming_Plane::ins_checks(bool display_failure)
 bool AP_Arming_Plane::arm_checks(AP_Arming::Method method)
 {
     //are arming checks disabled?
-    if (checks_to_perform == ARMING_CHECK_NONE) {
+    if (checks_to_perform == 0) {
         return true;
     }
 
@@ -148,11 +163,11 @@ bool AP_Arming_Plane::arm_checks(AP_Arming::Method method)
 
 #if GEOFENCE_ENABLED == ENABLED
     if (plane.g.fence_autoenable == 3) {
-        if (!plane.geofence_set_enabled(true, AUTO_TOGGLED)) {
+        if (!plane.geofence_set_enabled(true)) {
             gcs().send_text(MAV_SEVERITY_WARNING, "Fence: cannot enable for arming");
             return false;
         } else if (!plane.geofence_prearm_check()) {
-            plane.geofence_set_enabled(false, AUTO_TOGGLED);
+            plane.geofence_set_enabled(false);
             return false;
         } else {
             gcs().send_text(MAV_SEVERITY_WARNING, "Fence: auto-enabled for arming");
@@ -222,7 +237,7 @@ bool AP_Arming_Plane::disarm(void)
 
 #if GEOFENCE_ENABLED == ENABLED
     if (plane.g.fence_autoenable == 3) {
-        plane.geofence_set_enabled(false, AUTO_TOGGLED);
+        plane.geofence_set_enabled(false);
     }
 #endif
     

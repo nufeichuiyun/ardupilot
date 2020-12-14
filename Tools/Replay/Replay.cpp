@@ -619,10 +619,10 @@ void Replay::write_ekf_logs(void)
         _vehicle.ahrs.Log_Write();
     }
     if (!LogReader::in_list("AHRS2", nottypes)) {
-        _vehicle.logger.Write_AHRS2(_vehicle.ahrs);
+        _vehicle.logger.Write_AHRS2();
     }
     if (!LogReader::in_list("POS", nottypes)) {
-        _vehicle.logger.Write_POS(_vehicle.ahrs);
+        _vehicle.logger.Write_POS();
     }
 }
 
@@ -968,6 +968,7 @@ void AP_Camera::send_feedback(mavlink_channel_t) {}
 void AP_Camera::control(float, float, float, float, float, float) {}
 void AP_Camera::configure(float, float, float, float, float, float, float) {}
 bool AP_AdvancedFailsafe::gcs_terminate(bool should_terminate, const char *reason) { return false; }
+AP_AdvancedFailsafe *AP::advancedfailsafe() { return nullptr; }
 
 // avoid building/linking Devo:
 void AP_DEVO_Telem::init() {};

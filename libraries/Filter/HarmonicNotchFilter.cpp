@@ -31,7 +31,7 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
 
     // @Param: FREQ
     // @DisplayName: Harmonic Notch Filter base frequency
-    // @Description: Harmonic Notch Filter base center frequency in Hz
+    // @Description: Harmonic Notch Filter base center frequency in Hz. For helicopters using RPM sensor to dynamically set the notch frequency, use this parameter to provide a lower limit to the dynamic notch filter.  Recommend setting it to half the operating rotor speed in Hz.
     // @Range: 10 400
     // @Units: Hz
     // @User: Advanced
@@ -55,7 +55,7 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
 
     // @Param: HMNCS
     // @DisplayName: Harmonic Notch Filter harmonics
-    // @Description: Bitmask of harmonic frequencies to apply Harmonic Notch Filter to. This option takes effect on the next reboot. A maximum of 3 harmonics can be used at any one time
+    // @Description: Bitmask of harmonic frequencies to apply Harmonic Notch Filter to. This option takes effect on the next reboot. A maximum of 3 harmonics can be used at any one time.
     // @Bitmask: 0:1st harmonic,1:2nd harmonic,2:3rd harmonic,3:4th hamronic,4:5th harmonic,5:6th harmonic,6:7th harmonic,7:8th harmonic
     // @User: Advanced
     // @RebootRequired: True
@@ -63,11 +63,19 @@ const AP_Param::GroupInfo HarmonicNotchFilterParams::var_info[] = {
 
     // @Param: REF
     // @DisplayName: Harmonic Notch Filter reference value
-    // @Description: Reference value associated with the specified frequency to facilitate frequency scaling of the Harmonic Notch Filter
+    // @Description: A reference value of zero disables dynamic updates on the Harmonic Notch Filter and a positive value enables dynamic updates on the Harmonic Notch Filter.  For throttle-based scaling, this parameter is the reference value associated with the specified frequency to facilitate frequency scaling of the Harmonic Notch Filter. For RPM and ESC telemetry based tracking, this parameter is set to 1 to enable the Harmonic Notch Filter using the RPM sensor or ESC telemetry set to measure rotor speed.  The sensor data is converted to Hz automatically for use in the Harmonic Notch Filter.  This reference value may also be used to scale the sensor data, if required.  For example, rpm sensor data is required to measure heli motor RPM. Therefore the reference value can be used to scale the RPM sensor to the rotor RPM.
     // @User: Advanced
-    // @Range: 0.1 0.9
+    // @Range: 0.0 1.0
     // @RebootRequired: True
-    AP_GROUPINFO("REF", 6, HarmonicNotchFilterParams, _reference, 0.1f),
+    AP_GROUPINFO("REF", 6, HarmonicNotchFilterParams, _reference, 0),
+
+    // @Param: MODE
+    // @DisplayName: Harmonic Notch Filter dynamic frequency tracking mode
+    // @Description: Harmonic Notch Filter dynamic frequency tracking mode. Dynamic updates can be throttle, RPM sensor or ESC telemetry based. Throttle-based updates should only be used with multicopters.
+    // @Range: 0 3
+    // @Values: 0:Disabled,1:Throttle,2:RPM Sensor,3:ESC Telemetry
+    // @User: Advanced
+    AP_GROUPINFO("MODE", 7, HarmonicNotchFilterParams, _tracking_mode, 1),
 
     AP_GROUPEND
 };

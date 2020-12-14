@@ -44,7 +44,7 @@ public:
     static const struct AP_Param::GroupInfo var_info2[];
 
     void control_run(void);
-    void control_auto(const Location &loc);
+    void control_auto(void);
     bool init_mode(void);
     bool setup(void);
 
@@ -53,7 +53,7 @@ public:
     void takeoff_controller(void);
     void waypoint_controller(void);
 
-    void update_throttle_thr_mix(void);
+    void update_throttle_mix(void);
     
     // update transition handling
     void update(void);
@@ -279,7 +279,12 @@ private:
     // angular error at which quad assistance is given
     AP_Int8 assist_angle;
     uint32_t angle_error_start_ms;
-    
+
+    // altitude to trigger assistance
+    AP_Int16 assist_alt;
+    uint32_t alt_error_start_ms;
+    bool in_alt_assist;
+
     // maximum yaw rate in degrees/second
     AP_Float yaw_rate_max;
 
@@ -414,6 +419,9 @@ private:
     // time of last control log message
     uint32_t last_ctrl_log_ms;
 
+    // time of last QTUN log message
+    uint32_t last_qtun_log_ms;
+
     // types of tilt mechanisms
     enum {TILT_TYPE_CONTINUOUS    =0,
           TILT_TYPE_BINARY        =1,
@@ -540,6 +548,16 @@ private:
       are we in the descent phase of a VTOL landing?
      */
     bool in_vtol_land_descent(void) const;
+
+    /*
+      are we in the final landing phase of a VTOL landing?
+     */
+    bool in_vtol_land_final(void) const;
+
+    /*
+      are we in any of the phases of a VTOL landing?
+     */
+    bool in_vtol_land_sequence(void) const;
     
 public:
     void motor_test_output();

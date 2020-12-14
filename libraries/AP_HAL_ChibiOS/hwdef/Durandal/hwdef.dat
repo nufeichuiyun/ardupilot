@@ -19,16 +19,14 @@ APJ_BOARD_ID 139
 FLASH_SIZE_KB 2048
 
 # with 2M flash we can afford to optimize for speed
-env OPTIMIZE -O3
+env OPTIMIZE -O2
 
 # bootloader takes first sector
 FLASH_RESERVE_START_KB 128
 
-# board voltage
-STM32_VDD 330U
 
 # order of UARTs (and USB)
-UART_ORDER OTG1 USART1 USART2 USART3 UART4 USART6 UART7 OTG2
+SERIAL_ORDER OTG1 USART2 USART3 USART1 UART4 USART6 UART7 OTG2
 
 # default the 2nd interface to MAVLink2 until MissionPlanner updates drivers
 define HAL_OTG2_PROTOCOL SerialProtocol_MAVLink2
@@ -160,9 +158,7 @@ PD1 UART4_TX UART4 NODMA
 
 # USART6 is telem3
 PG9 USART6_RX USART6 NODMA
-# we leave PG14 as an input to prevent it acting as a pullup
-# on the IOMCU SBUS input
-# PG14 USART6_TX USART6
+PG14 USART6_TX USART6
 PG15 USART6_CTS USART6
 PG8 USART6_RTS USART6
 
@@ -176,12 +172,6 @@ PE1 UART8_TX UART8
 
 # UART for IOMCU
 IOMCU_UART UART8
-
-# enable RTSCTS support
-define AP_FEATURE_RTSCTS 1
-
-# enable SBUS_OUT on IOMCU (if you have an IOMCU)
-define AP_FEATURE_SBUS_OUT 1
 
 # PWM AUX channels
 PE14 TIM1_CH4 TIM1 PWM(1) GPIO(50)
@@ -284,6 +274,13 @@ SPIDEV external5m1   SPI6 DEVID2  EXT2_CS3   MODE1  2*MHZ  2*MHZ
 SPIDEV external5m2   SPI6 DEVID2  EXT2_CS3   MODE2  2*MHZ  2*MHZ
 SPIDEV external5m3   SPI6 DEVID2  EXT2_CS3   MODE3  2*MHZ  2*MHZ
 
+# Two IMUs
+IMU Invensense SPI:icm20689 ROTATION_NONE
+IMU BMI088 SPI:bmi055_a SPI:bmi055_g ROTATION_ROLL_180_YAW_90
+# These are here for compatibility with pre-release boards
+IMU BMI055 SPI:bmi055_a SPI:bmi055_g ROTATION_ROLL_180_YAW_90
+
+define HAL_DEFAULT_INS_FAST_SAMPLE 7
 
 # microSD support (disabled for now)
 PC8 SDMMC1_D0 SDMMC1
