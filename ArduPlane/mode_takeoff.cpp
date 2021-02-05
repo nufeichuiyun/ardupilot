@@ -1,6 +1,10 @@
 #include "mode.h"
 #include "Plane.h"
 
+#define SHAKE_ARMING_IMU_ACCX_THRESHOLD  15.0f
+#define SHAKE_ARMING_TIMEOUT_MS  500
+#define SHAKE_ARMING_DELAY_MS 1000
+
 /*
   mode takeoff parameters
  */
@@ -40,6 +44,12 @@ const AP_Param::GroupInfo ModeTakeoff::var_info[] = {
     // @Units: m
     // @User: User
     AP_GROUPINFO("DIST", 4, ModeTakeoff, target_dist, 200),
+
+    // @Param: SK_ARM
+    // @DisplayName: Takeoff auto arm by shaking three times
+    // @Description: enable auto arm by shaking three times in takeoff mode when set to 1
+    // @User: User
+    AP_GROUPINFO("SK_ARM", 5, ModeTakeoff, shake_arm_enable, 0),
     
     AP_GROUPEND
 };
@@ -58,11 +68,67 @@ bool ModeTakeoff::_enter()
 
     takeoff_started = false;
 
+    shake_forward_times = 0;
+    shake_backward_times = 0;
+
+    imu_AccX_old = 0;
+
+    last_cross_AccX_threshold_time = 0;
+    prepare_to_arm_time = 0;
+
     return true;
 }
 
 void ModeTakeoff::update()
 {
+    if(shake_arm_enable == 1) {  // enable arming by shaking three times in X axis
+        if(plane.arming.is_armed() == false) {  // in disarmed state
+            if(plane.gps.status() >= AP_GPS::GPS_OK_FIX_3D) {  // GPS 3D fix
+                float xaccel = plane.SpdHgt_Controller->get_VXdot();
+                
+                // moving forward check
+                if((xaccel > SHAKE_ARMING_IMU_ACCX_THRESHOLD) && (imu_AccX_old <= SHAKE_ARMING_IMU_ACCX_THRESHOLD)) {
+                    shake_forward_times ++;
+                    last_cross_AccX_threshold_time = AP_HAL::millis();
+                }
+
+                // moving backward check
+                if((xaccel < -SHAKE_ARMING_IMU_ACCX_THRESHOLD) && (imu_AccX_old >= -SHAKE_ARMING_IMU_ACCX_THRESHOLD)) {
+                    shake_backward_times ++;
+                    last_cross_AccX_threshold_time = AP_HAL::millis();
+                }
+
+                // record Acc X value
+                imu_AccX_old = xaccel;
+
+                // timeout logic
+                if(AP_HAL::millis() - last_cross_AccX_threshold_time > SHAKE_ARMING_TIMEOUT_MS) {
+                    shake_forward_times = 0;
+                    shake_backward_times = 0;
+                    imu_AccX_old = 0;
+                    last_cross_AccX_threshold_time = 0;
+                    prepare_to_arm_time = 0;
+                }
+
+                // arming logic
+                if((shake_forward_times >= 3) && (shake_backward_times >= 3)) {
+                    // delay arming logic
+                    if(prepare_to_arm_time == 0) {
+                        prepare_to_arm_time = AP_HAL::millis();  // start delay logic
+                    } else if(AP_HAL::millis() - prepare_to_arm_time > SHAKE_ARMING_DELAY_MS){
+                        plane.arming.arm(AP_Arming::Method::SCRIPTING);
+                        plane.throttle_suppressed = false;
+                        shake_forward_times = 0;
+                        shake_backward_times = 0;
+                        imu_AccX_old = 0;
+                        last_cross_AccX_threshold_time = 0;
+                        prepare_to_arm_time = 0;
+                    }
+                }
+            }
+        }
+    }
+
     if (!takeoff_started) {
         // see if we will skip takeoff as already flying
         if (plane.is_flying() && (millis() - plane.started_flying_ms > 10000U) && plane.ahrs.groundspeed() > 3) {

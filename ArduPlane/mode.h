@@ -474,9 +474,18 @@ protected:
     AP_Int16 target_dist;
     AP_Int16 level_alt;
     AP_Int8 level_pitch;
+    AP_Int8 shake_arm_enable;
 
     bool takeoff_started;
     Location start_loc;
+
+    int8_t shake_forward_times;
+    int8_t shake_backward_times;
+
+    float imu_AccX_old;
+
+    uint32_t last_cross_AccX_threshold_time;
+    uint32_t prepare_to_arm_time;
 
     bool _enter() override;
 };
