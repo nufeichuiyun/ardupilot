@@ -330,6 +330,12 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
+// DrawStar mode - 五角星航线模式
+#ifndef MODE_DRAWSTAR_ENABLED
+# define MODE_DRAWSTAR_ENABLED ENABLED
+#endif
+
+//////////////////////////////////////////////////////////////////////////////
 // Position Hold - enable holding of global position
 #ifndef MODE_POSHOLD_ENABLED
 # define MODE_POSHOLD_ENABLED ENABLED
