@@ -961,7 +961,12 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     AP_SUBGROUPINFO(arot, "AROT_", 37, ParametersG2, AC_Autorotation),
 #endif
 
-
+    // @Param: SRAT_R_CM
+    // @DisplayName: star radius cm
+    // @Description: 五角星航线中五角星的大小
+    // @Units: cm
+    // @User: Advanced
+    AP_GROUPINFO("STAR_R_CM", 38, ParametersG2, star_radius_cm, 1000.0f),
 
     AP_GROUPEND
 };

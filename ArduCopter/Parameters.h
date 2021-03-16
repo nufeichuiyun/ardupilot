@@ -620,6 +620,8 @@ public:
     // Autonmous autorotation
     AC_Autorotation arot;
 #endif
+
+    AP_Float star_radius_cm;  // 五角星大小，单位cm。 注意，在变量名中加上单位是一个非常好的飞控编程习惯
 };
 
 extern const AP_Param::Info        var_info[];

@@ -7,7 +7,7 @@
  */
 bool ModeDrawStar::init(bool ignore_checks)
 {
-    path_num = 0;
+    path_num = 0;  // 航点号清零，从而切到其他模式再切回来后，可以飞出一个新的五角星航线
     generate_path();  // 生成五角星航线
 
     pos_control_start();  // 开始位置控制
@@ -18,7 +18,7 @@ bool ModeDrawStar::init(bool ignore_checks)
 // 生成五角星航线
 void ModeDrawStar::generate_path()
 {
-    float radius_cm = 1000.0;
+    float radius_cm = g2.star_radius_cm;
 
     wp_nav->get_wp_stopping_point(path[0]);
 
