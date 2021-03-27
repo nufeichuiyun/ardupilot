@@ -46,14 +46,17 @@ void ModeDrawStar::pos_control_start()
 // 此模式的周期调用
 void ModeDrawStar::run()
 {
-  if (path_num < 6) {  // 五角星航线尚未走完
-    if (wp_nav->reached_wp_destination()) {  // 到达某个端点
-      path_num++;
-      wp_nav->set_wp_destination(path[path_num], false);  // 将下一个航点位置设置为导航控制模块的目标位置
+    if (path_num < 6) {  // 五角星航线尚未走完
+        if (wp_nav->reached_wp_destination()) {  // 到达某个端点
+            path_num++;
+            wp_nav->set_wp_destination(path[path_num], false);  // 将下一个航点位置设置为导航控制模块的目标位置
+        }
+    } else if ((path_num == 6) && wp_nav->reached_wp_destination()) {  // 五角星航线运行完成，自动进入Loiter模式
+        gcs().send_text(MAV_SEVERITY_INFO, "Draw star finished, now go into loiter mode");
+        copter.set_mode(Mode::Number::LOITER, ModeReason::MISSION_END);  // 切换到loiter模式
     }
-  }
 
-  pos_control_run();  // 位置控制器
+    pos_control_run();  // 位置控制器
 }
 
 // guided_pos_control_run - runs the guided position controller
