@@ -54,6 +54,11 @@ public:
 
     AP_SerialManager serial_manager;
 
+#ifdef HAL_PERIPH_NEOPIXEL_COUNT
+    bool got_first_UAVCAN_lightscommand_frame;  // 已经收到第一个RGB LED灯控制的UAVCAN帧
+    void update_rainbow();
+#endif
+
 #ifdef HAL_PERIPH_ENABLE_GPS
     AP_GPS gps;
 #endif

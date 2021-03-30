@@ -622,6 +622,9 @@ static void handle_lightscommand(CanardInstance* ins, CanardRxTransfer* transfer
     if (uavcan_equipment_indication_LightsCommand_decode(transfer, transfer->payload_len, &req, &arraybuf_ptr) < 0) {
         return;
     }
+
+    periph.got_first_UAVCAN_lightscommand_frame = true;
+
     for (uint8_t i=0; i<req.commands.len; i++) {
         uavcan_equipment_indication_SingleLightCommand &cmd = req.commands.data[i];
         // to get the right color proportions we scale the green so that is uses the
@@ -1135,6 +1138,10 @@ static void can_wait_node_id(void)
                 led_idx = (led_idx+1) % 32;
                 last_led_change = now;
             }
+
+#ifdef HAL_PERIPH_NEOPIXEL_COUNT
+            periph.update_rainbow();
+#endif
         }
 
 
