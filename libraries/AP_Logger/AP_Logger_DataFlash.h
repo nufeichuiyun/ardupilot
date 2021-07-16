@@ -5,10 +5,9 @@
 
 #include <AP_HAL/AP_HAL.h>
 
-#ifdef HAL_LOGGING_DATAFLASH
-#include "AP_Logger_Backend.h"
 #include "AP_Logger_Block.h"
 
+#if HAL_LOGGING_DATAFLASH_ENABLED
 
 class AP_Logger_DataFlash : public AP_Logger_Block {
 public:
@@ -21,13 +20,15 @@ private:
     void              BufferToPage(uint32_t PageAdr) override;
     void              PageToBuffer(uint32_t PageAdr) override;
     void              SectorErase(uint32_t SectorAdr) override;
+    void              Sector4kErase(uint32_t SectorAdr) override;
     void              StartErase() override;
     bool              InErase() override;
     void              send_command_addr(uint8_t cmd, uint32_t address);
     void              WaitReady();
     bool              Busy();
     uint8_t           ReadStatusReg();
-    
+    void              Enter4ByteAddressMode(void);
+
     void              WriteEnable();
     bool              getSectorCount(void);
     void              flash_test(void);
@@ -41,4 +42,4 @@ private:
     bool use_32bit_address;
 };
 
-#endif // HAL_LOGGING_DATAFLASH
+#endif // HAL_LOGGING_DATAFLASH_ENABLED

@@ -18,9 +18,11 @@
 
 #include <AP_HAL/HAL.h>
 #include <AP_OSD/AP_OSD.h>
+#include <AP_Filesystem/AP_Filesystem.h>
 
 
-class AP_OSD_Backend {
+class AP_OSD_Backend
+{
 
 public:
     //constructor
@@ -33,13 +35,16 @@ public:
     virtual void write(uint8_t x, uint8_t y, const char* text) = 0;
 
     //draw formatted text to framebuffer
-    virtual void write(uint8_t x, uint8_t y, bool blink, const char *fmt, ...);
+    virtual void write(uint8_t x, uint8_t y, bool blink, const char *fmt, ...) FMT_PRINTF(5, 6);
 
     //initilize framebuffer and underlying hardware
     virtual bool init() = 0;
 
     //update screen
     virtual void flush() = 0;
+
+    // return a correction factor used to display angles correctly
+    virtual float get_aspect_ratio_correction() const {return 1;}
 
     //clear screen
     //should match hw blink
@@ -63,12 +68,21 @@ protected:
     }
 
     //check option
-    bool check_option(uint32_t option)
+    bool check_option(uint32_t option) const
     {
         return (_osd.options & option) != 0;
     }
 
+    // load a font from sdcard or ROMFS
+    FileData *load_font_data(uint8_t font_num);
+
     int8_t blink_phase;
+
+    enum vid_format {
+        FORMAT_UNKNOWN = 0,
+        FORMAT_NTSC = 1,
+        FORMAT_PAL = 2,
+    } _format;
 };
 
 

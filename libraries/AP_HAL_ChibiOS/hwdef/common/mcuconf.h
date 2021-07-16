@@ -39,10 +39,14 @@
 
 #if defined(STM32F1)
 #include "stm32f1_mcuconf.h"
+#elif defined(STM32F3)
+#include "stm32f3_mcuconf.h"
 #elif defined(STM32F4) || defined(STM32F7)
 #include "stm32f47_mcuconf.h"
 #elif defined(STM32H7)
 #include "stm32h7_mcuconf.h"
+#elif defined(STM32G4)
+#include "stm32g4_mcuconf.h"
 #else
 #error "Unsupported MCU"
 #endif

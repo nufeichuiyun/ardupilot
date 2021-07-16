@@ -54,7 +54,7 @@ public:
 
     // set PWM of channels when in FMU failsafe
     void set_failsafe_pwm(uint16_t chmask, uint16_t period_us);
-    
+
     /*
       enable sbus output
     */
@@ -71,6 +71,11 @@ public:
     // get the name of the RC protocol
     const char *get_rc_protocol(void);
 
+    // get receiver RSSI
+    int16_t get_RSSI(void) const {
+        return rc_input.rssi;
+    }
+    
     /*
       get servo rail voltage
      */
@@ -92,7 +97,7 @@ public:
 
     // set to brushed mode
     void set_brushed_mode(void);
-    
+
     // check if IO is healthy
     bool healthy(void);
 
@@ -102,7 +107,14 @@ public:
     // setup for FMU failsafe mixing
     bool setup_mixing(RCMapper *rcmap, int8_t override_chan,
                       float mixing_gain, uint16_t manual_rc_mask);
-    
+
+    // channel group masks
+    const uint8_t ch_masks[3] = { 0x03,0x0C,0xF0 };
+
+    static AP_IOMCU *get_singleton(void) {
+        return singleton;
+    }
+
 private:
     AP_HAL::UARTDriver &uart;
 
@@ -118,7 +130,7 @@ private:
     bool write_register(uint8_t page, uint8_t offset, uint16_t v) {
         return write_registers(page, offset, 1, &v);
     }
-    
+
     // modify a single register
     bool modify_register(uint8_t page, uint8_t offset, uint16_t clearbits, uint16_t setbits);
 
@@ -142,13 +154,17 @@ private:
     // have we forced the safety off?
     bool safety_forced_off;
 
+    // was safety off on last status?
+    bool last_safety_off;
+
     void send_servo_out(void);
     void read_rc_input(void);
     void read_servo(void);
     void read_status(void);
     void discard_input(void);
-    void event_failed(uint8_t event);
+    void event_failed(uint32_t event_mask);
     void update_safety_options(void);
+    void send_rc_protocols(void);
 
     // CONFIG page
     struct page_config config;
@@ -163,7 +179,7 @@ private:
 
     // MIXER values
     struct page_mixing mixing;
-    
+
     // output pwm values
     struct {
         uint8_t num_channels;
@@ -188,6 +204,8 @@ private:
         uint16_t chmask;
         uint16_t default_freq = 50;
         uint16_t sbus_rate_hz;
+        bool oneshot_enabled;
+        bool brushed_enabled;
     } rate;
 
     // IMU heater duty cycle
@@ -209,10 +227,13 @@ private:
     uint32_t total_errors;
     uint32_t num_delayed;
     uint32_t last_iocmu_timestamp_ms;
+    uint32_t read_status_errors;
+    uint32_t read_status_ok;
+    uint32_t last_rc_protocols;
 
     // firmware upload
     const char *fw_name = "io_firmware.bin";
-    uint8_t *fw;
+    const uint8_t *fw;
     uint32_t fw_size;
 
     size_t write_wait(const uint8_t *pkt, uint8_t len);
@@ -234,6 +255,8 @@ private:
     bool check_crc(void);
     void handle_repeated_failures();
     void check_iomcu_reset();
+
+    static AP_IOMCU *singleton;
 
     enum {
         PROTO_NOP               = 0x00,
@@ -265,6 +288,10 @@ private:
 
         PROG_MULTI_MAX    = 248,      /**< protocol max is 255, must be multiple of 4 */
     };
+};
+
+namespace AP {
+    AP_IOMCU *iomcu(void);
 };
 
 #endif // HAL_WITH_IO_MCU

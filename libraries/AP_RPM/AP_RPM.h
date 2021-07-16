@@ -38,8 +38,14 @@ public:
     // RPM driver types
     enum RPM_Type {
         RPM_TYPE_NONE    = 0,
-        RPM_TYPE_PX4_PWM = 1,
-        RPM_TYPE_PIN     = 2
+        RPM_TYPE_PWM     = 1,
+        RPM_TYPE_PIN     = 2,
+        RPM_TYPE_EFI     = 3,
+        RPM_TYPE_HNTCH   = 4,
+        RPM_TYPE_ESC_TELEM  = 5,
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+        RPM_TYPE_SITL   = 10,
+#endif
     };
 
     // The RPM_State structure is filled in by the backend driver
@@ -57,6 +63,7 @@ public:
     AP_Float _maximum[RPM_MAX_INSTANCES];
     AP_Float _minimum[RPM_MAX_INSTANCES];
     AP_Float _quality_min[RPM_MAX_INSTANCES];
+    AP_Int32 _esc_mask[RPM_MAX_INSTANCES];
 
     static const struct AP_Param::GroupInfo var_info[];
 
@@ -74,12 +81,7 @@ public:
     /*
       return RPM for a sensor. Return -1 if not healthy
      */
-    float get_rpm(uint8_t instance) const {
-        if (!healthy(instance)) {
-            return -1;
-        }
-        return state[instance].rate_rpm;
-    }
+    bool get_rpm(uint8_t instance, float &rpm_value) const;
 
     /*
       return signal quality for a sensor.

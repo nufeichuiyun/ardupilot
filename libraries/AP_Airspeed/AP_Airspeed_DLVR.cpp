@@ -43,10 +43,12 @@ bool AP_Airspeed_DLVR::init()
     if (!dev) {
         return false;
     }
-    dev->get_semaphore()->take_blocking();
+    WITH_SEMAPHORE(dev->get_semaphore());
     dev->set_speed(AP_HAL::Device::SPEED_LOW);
     dev->set_retries(2);
-    dev->get_semaphore()->give();
+    dev->set_device_type(uint8_t(DevType::DLVR));
+    set_bus_id(dev->get_bus_id());
+
     dev->register_periodic_callback(1000000UL/50U,
                                     FUNCTOR_BIND_MEMBER(&AP_Airspeed_DLVR::timer, void));
     return true;
@@ -98,17 +100,16 @@ void AP_Airspeed_DLVR::timer()
 // return the current differential_pressure in Pascal
 bool AP_Airspeed_DLVR::get_differential_pressure(float &_pressure)
 {
+    WITH_SEMAPHORE(sem);
+
     if ((AP_HAL::millis() - last_sample_time_ms) > 100) {
         return false;
     }
 
-    {
-        WITH_SEMAPHORE(sem);
-        if (press_count > 0) {
-            pressure = pressure_sum / press_count;
-            press_count = 0;
-            pressure_sum = 0;
-        }
+    if (press_count > 0) {
+        pressure = pressure_sum / press_count;
+        press_count = 0;
+        pressure_sum = 0;
     }
 
     _pressure = pressure;
@@ -118,11 +119,11 @@ bool AP_Airspeed_DLVR::get_differential_pressure(float &_pressure)
 // return the current temperature in degrees C, if available
 bool AP_Airspeed_DLVR::get_temperature(float &_temperature)
 {
+    WITH_SEMAPHORE(sem);
+
     if ((AP_HAL::millis() - last_sample_time_ms) > 100) {
         return false;
     }
-
-    WITH_SEMAPHORE(sem);
 
     if (temp_count > 0) {
         temperature = temperature_sum / temp_count;

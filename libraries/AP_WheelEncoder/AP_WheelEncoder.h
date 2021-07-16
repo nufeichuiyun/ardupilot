@@ -31,6 +31,7 @@ class AP_WheelEncoder
 public:
     friend class AP_WheelEncoder_Backend;
     friend class AP_WheelEncoder_Quadrature;
+    friend class AP_WheelEncoder_SITL_Quadrature;
 
     AP_WheelEncoder(void);
 
@@ -38,10 +39,16 @@ public:
     AP_WheelEncoder(const AP_WheelEncoder &other) = delete;
     AP_WheelEncoder &operator=(const AP_WheelEncoder&) = delete;
 
+    // get singleton instance
+    static AP_WheelEncoder *get_singleton() {
+        return _singleton;
+    }
+
     // WheelEncoder driver types
     enum WheelEncoder_Type : uint8_t {
-        WheelEncoder_TYPE_NONE          = 0,
-        WheelEncoder_TYPE_QUADRATURE    = 1
+        WheelEncoder_TYPE_NONE             =   0,
+        WheelEncoder_TYPE_QUADRATURE       =   1,
+        WheelEncoder_TYPE_SITL_QUADRATURE  =  10,
     };
 
     // The WheelEncoder_State structure is filled in by the backend driver
@@ -63,7 +70,7 @@ public:
     void update(void);
 
     // log data to logger
-    void Log_Write();
+    void Log_Write() const;
 
     // return the number of wheel encoder sensor instances
     uint8_t num_sensors(void) const { return num_instances; }
@@ -119,4 +126,12 @@ protected:
     AP_WheelEncoder_Backend *drivers[WHEELENCODER_MAX_INSTANCES];
     uint8_t num_instances;
     Vector3f pos_offset_zero;   // allows returning position offsets of zero for invalid requests
+
+private:
+
+    static AP_WheelEncoder *_singleton;
 };
+
+namespace AP {
+    AP_WheelEncoder *wheelencoder();
+}

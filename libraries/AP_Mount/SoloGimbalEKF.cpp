@@ -5,10 +5,11 @@
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX
 #pragma GCC optimize("O0")
 #else
-#pragma GCC optimize("O3")
+#pragma GCC optimize("O2")
 #endif
 
 #include "SoloGimbalEKF.h"
+#if HAL_SOLO_GIMBAL_ENABLED
 #include <AP_Param/AP_Param.h>
 #include <AP_Vehicle/AP_Vehicle.h>
 #include <AP_NavEKF/AP_Nav_Common.h>
@@ -40,7 +41,7 @@ SoloGimbalEKF::SoloGimbalEKF() :
 // complete reset
 void SoloGimbalEKF::reset()
 {
-    memset(&states,0,sizeof(states));
+    ZERO_FARRAY(states);
     memset((void *)&gSense,0,sizeof(gSense));
     memset(&Cov,0,sizeof(Cov));
     TiltCorrectionSquared = 0;
@@ -885,7 +886,7 @@ float SoloGimbalEKF::calcMagHeadingInnov()
     // Define rotation from magnetometer to NED axes
     Matrix3f Tmn = Tsn*Tms;
 
-    // rotate magentic field measured at top plate into NED axes afer applying bias values learnt by main EKF
+    // rotate magnetic field measured at top plate into NED axes afer applying bias values learnt by main EKF
     Vector3f magMeasNED = Tmn*(magData - body_magfield);
 
     // calculate the innovation where the predicted measurement is the angle wrt magnetic north of the horizontal component of the measured field
@@ -961,4 +962,5 @@ bool SoloGimbalEKF::getStatus() const
     float run_time = AP_HAL::millis() - StartTime_ms;
     return  YawAligned && (run_time > 15000);
 }
+#endif // HAL_SOLO_GIMBAL_ENABLED
 

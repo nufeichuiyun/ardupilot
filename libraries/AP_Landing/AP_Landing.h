@@ -52,9 +52,16 @@ public:
     // NOTE: make sure to update is_type_valid()
     enum Landing_Type {
         TYPE_STANDARD_GLIDE_SLOPE = 0,
+#if HAL_LANDING_DEEPSTALL_ENABLED
         TYPE_DEEPSTALL = 1,
+#endif
 //      TODO: TYPE_PARACHUTE,
 //      TODO: TYPE_HELICAL,
+    };
+
+    // we support upto 32 boolean bits for users wanting to change landing behaviour.
+    enum OptionsMask {
+        ON_LANDING_FLARE_USE_THR_MIN                   = (1<<0),   // If set then set trottle to thr_min instead of zero on final flare
     };
 
     void do_land(const AP_Mission::Mission_Command& cmd, const float relative_altitude);
@@ -72,6 +79,7 @@ public:
     bool is_ground_steering_allowed(void) const;
     bool is_throttle_suppressed(void) const;
     bool is_flying_forward(void) const;
+    bool use_thr_min_during_flare(void) const; //defaults to false, but _options bit zero enables it.
     void handle_flight_stage_change(const bool _in_landing_stage);
     int32_t constrain_roll(const int32_t desired_roll_cd, const int32_t level_roll_limit_cd);
     bool get_target_altitude_location(Location &location);
@@ -115,6 +123,8 @@ private:
         bool in_progress:1;
     } flags;
 
+    AP_Int16 _options;    // user-configurable bitmask options, via a parameter, for landing
+
     // same as land_slope but sampled once before a rangefinder changes the slope. This should be the original mission planned slope
     float initial_slope;
 
@@ -135,8 +145,10 @@ private:
     disarm_if_autoland_complete_fn_t disarm_if_autoland_complete_fn;
     update_flight_stage_fn_t update_flight_stage_fn;
 
+#if HAL_LANDING_DEEPSTALL_ENABLED
     // support for deepstall landings
     AP_Landing_Deepstall deepstall;
+#endif
 
     AP_Int16 pitch_cd;
     AP_Float flare_alt;

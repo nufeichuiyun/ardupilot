@@ -53,7 +53,7 @@ const AP_Param::GroupInfo AP_L1_Control::var_info[] = {
 /*
   Wrap AHRS yaw if in reverse - radians
  */
-float AP_L1_Control::get_yaw()
+float AP_L1_Control::get_yaw() const
 {
     if (_reverse) {
         return wrap_PI(M_PI + _ahrs.yaw);
@@ -64,7 +64,7 @@ float AP_L1_Control::get_yaw()
 /*
   Wrap AHRS yaw sensor if in reverse - centi-degress
  */
-float AP_L1_Control::get_yaw_sensor()
+int32_t AP_L1_Control::get_yaw_sensor() const
 {
     if (_reverse) {
         return wrap_180_cd(18000 + _ahrs.yaw_sensor);
@@ -79,7 +79,7 @@ float AP_L1_Control::get_yaw_sensor()
 int32_t AP_L1_Control::nav_roll_cd(void) const
 {
     float ret;
-    ret = cosf(_ahrs.pitch)*degrees(atanf(_latAccDem * 0.101972f) * 100.0f); // 0.101972 = 1/9.81
+    ret = cosf(_ahrs.pitch)*degrees(atanf(_latAccDem * (1.0f/GRAVITY_MSS)) * 100.0f);
     ret = constrain_float(ret, -9000, 9000);
     return ret;
 }
@@ -205,9 +205,13 @@ void AP_L1_Control::update_waypoint(const struct Location &prev_WP, const struct
 
     uint32_t now = AP_HAL::micros();
     float dt = (now - _last_update_waypoint_us) * 1.0e-6f;
+    if (dt > 1) {
+        // controller hasn't been called for an extended period of
+        // time.  Reinitialise it.
+        _L1_xtrack_i = 0.0f;
+    }
     if (dt > 0.1) {
         dt = 0.1;
-        _L1_xtrack_i = 0.0f;
     }
     _last_update_waypoint_us = now;
 

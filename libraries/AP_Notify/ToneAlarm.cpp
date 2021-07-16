@@ -32,7 +32,7 @@ extern const AP_HAL::HAL& hal;
 
 // Tunes follow the syntax of the Microsoft GWBasic/QBasic PLAY
 //   statement, with some exceptions and extensions.
-// See http://firmware.ardupilot.org/Tools/ToneTester/
+// See https://firmware.ardupilot.org/Tools/ToneTester/
 const AP_ToneAlarm::Tone AP_ToneAlarm::_tones[] {
 #define AP_NOTIFY_TONE_QUIET_NEG_FEEDBACK 0
     { "MFT200L4<<<B#A#2", false },
@@ -62,7 +62,7 @@ const AP_ToneAlarm::Tone AP_ToneAlarm::_tones[] {
     { "MBT200>A#1", true },
 #define AP_NOTIFY_TONE_LOUD_BATTERY_ALERT_CTS 13
     { "MBNT255>A#8A#8A#8A#8A#8A#8A#8A#8A#8A#8A#8A#8A#8A#8A#8A#8", true },
-#define AP_NOTIFY_TONE_QUIET_COMPASS_CALIBRATING_CTS 14
+#define AP_NOTIFY_TONE_QUIET_CALIBRATING_CTS 14
     { "MBNT255<C16P2", true },
 #define AP_NOTIFY_TONE_WAITING_FOR_THROW 15
     { "MBNT90L4O2A#O3DFN0N0N0", true},
@@ -96,6 +96,8 @@ const AP_ToneAlarm::Tone AP_ToneAlarm::_tones[] {
     { "MFT240L8O4aO5dcO4aO5dcO4aO5dcL16dcdcdcdc", false },
 #define AP_NOTIFY_TONE_NO_SDCARD 30
     { "MNBGG", false },
+#define AP_NOTIFY_TONE_EKF_ALERT 31
+    { "MBNT255>A#8A#8A#8A#8P8A#8A#8A#8A#8P8A#8A#8A#8A#8P8A#8A#8A#8A#8", true },
 };
 
 bool AP_ToneAlarm::init()
@@ -103,9 +105,14 @@ bool AP_ToneAlarm::init()
     if (pNotify->buzzer_enabled() == false) {
         return false;
     }
-    if (!hal.util->toneAlarm_init()) {
+#if ((defined(HAL_PWM_ALARM) || HAL_DSHOT_ALARM) && CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS) || \
+    CONFIG_HAL_BOARD == HAL_BOARD_LINUX || \
+    CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    if (!hal.util->toneAlarm_init(pNotify->get_buzzer_types())) {
         return false;
     }
+#endif
+
 
     // set initial boot states. This prevents us issuing a arming
     // warning in plane and rover on every boot
@@ -127,7 +134,9 @@ bool AP_ToneAlarm::init()
     }
 #endif
 
+#ifndef HAL_BUILD_AP_PERIPH
     play_tone(AP_NOTIFY_TONE_STARTUP);
+#endif
     return true;
 }
 
@@ -204,10 +213,10 @@ void AP_ToneAlarm::update()
 
     if (AP_Notify::flags.compass_cal_running != flags.compass_cal_running) {
         if (AP_Notify::flags.compass_cal_running) {
-            play_tone(AP_NOTIFY_TONE_QUIET_COMPASS_CALIBRATING_CTS);
+            play_tone(AP_NOTIFY_TONE_QUIET_CALIBRATING_CTS);
             play_tone(AP_NOTIFY_TONE_QUIET_POS_FEEDBACK);
         } else {
-            if (_cont_tone_playing == AP_NOTIFY_TONE_QUIET_COMPASS_CALIBRATING_CTS) {
+            if (_cont_tone_playing == AP_NOTIFY_TONE_QUIET_CALIBRATING_CTS) {
                 stop_cont_tone();
             }
         }
@@ -224,18 +233,38 @@ void AP_ToneAlarm::update()
         return;
     }
 
-    if (AP_Notify::events.compass_cal_saved) {
+    if (AP_Notify::events.compass_cal_saved ||
+        AP_Notify::events.temp_cal_saved) {
         play_tone(AP_NOTIFY_TONE_QUIET_READY_OR_FINISHED);
         return;
     }
 
-    if (AP_Notify::events.compass_cal_failed) {
+    if (AP_Notify::events.compass_cal_failed ||
+        AP_Notify::events.temp_cal_failed) {
         play_tone(AP_NOTIFY_TONE_QUIET_NEG_FEEDBACK);
         return;
     }
 
-    // don't play other tones if compass cal is running
-    if (AP_Notify::flags.compass_cal_running) {
+    if (AP_Notify::events.initiated_temp_cal) {
+        play_tone(AP_NOTIFY_TONE_QUIET_NEU_FEEDBACK);
+        return;
+    }
+
+    if (AP_Notify::flags.temp_cal_running != flags.temp_cal_running) {
+        if (AP_Notify::flags.temp_cal_running) {
+            play_tone(AP_NOTIFY_TONE_QUIET_CALIBRATING_CTS);
+            play_tone(AP_NOTIFY_TONE_QUIET_POS_FEEDBACK);
+        } else {
+            if (_cont_tone_playing == AP_NOTIFY_TONE_QUIET_CALIBRATING_CTS) {
+                stop_cont_tone();
+            }
+        }
+    }
+    flags.temp_cal_running = AP_Notify::flags.temp_cal_running;
+    
+    // don't play other tones if cal is running
+    if (AP_Notify::flags.compass_cal_running ||
+        AP_Notify::flags.temp_cal_running) {
         return;
     }
 
@@ -286,6 +315,23 @@ void AP_ToneAlarm::update()
     if (flags.failsafe_radio != AP_Notify::flags.failsafe_radio) {
         flags.failsafe_radio = AP_Notify::flags.failsafe_radio;
         if (flags.failsafe_radio) {
+            // armed case handled by events.failsafe_mode_change
+            if (!AP_Notify::flags.armed) {
+                play_tone(AP_NOTIFY_TONE_QUIET_NEG_FEEDBACK);
+            }
+        } else {
+            if (AP_Notify::flags.armed) {
+                play_tone(AP_NOTIFY_TONE_LOUD_POS_FEEDBACK);
+            } else {
+                play_tone(AP_NOTIFY_TONE_QUIET_POS_FEEDBACK);
+            }
+        }
+    }
+
+    // notify the user when GCS failsafe is triggered
+    if (flags.failsafe_gcs != AP_Notify::flags.failsafe_gcs) {
+        flags.failsafe_gcs = AP_Notify::flags.failsafe_gcs;
+        if (flags.failsafe_gcs) {
             // armed case handled by events.failsafe_mode_change
             if (!AP_Notify::flags.armed) {
                 play_tone(AP_NOTIFY_TONE_QUIET_NEG_FEEDBACK);
@@ -391,6 +437,14 @@ void AP_ToneAlarm::update()
     if (AP_Notify::events.tune_error) {
         play_tone(AP_NOTIFY_TONE_TUNING_ERROR);
         AP_Notify::events.tune_error = 0;
+    }
+
+    // notify the user when ekf failsafe is triggered
+    if (flags.failsafe_ekf != AP_Notify::flags.failsafe_ekf) {
+        flags.failsafe_ekf = AP_Notify::flags.failsafe_ekf;
+        if (flags.failsafe_ekf) {
+            play_tone(AP_NOTIFY_TONE_EKF_ALERT);
+        }
     }
 }
 

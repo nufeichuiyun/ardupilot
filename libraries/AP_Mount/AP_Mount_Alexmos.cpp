@@ -1,5 +1,5 @@
 #include "AP_Mount_Alexmos.h"
-#include <AP_GPS/AP_GPS.h>
+#if HAL_MOUNT_ENABLED
 #include <AP_SerialManager/AP_SerialManager.h>
 
 extern const AP_HAL::HAL& hal;
@@ -52,8 +52,27 @@ void AP_Mount_Alexmos::update()
 
         // point mount to a GPS point given by the mission planner
         case MAV_MOUNT_MODE_GPS_POINT:
-            if(AP::gps().status() >= AP_GPS::GPS_OK_FIX_2D) {
-                calc_angle_to_location(_state._roi_target, _angle_ef_target_rad, true, false);
+            if (calc_angle_to_roi_target(_angle_ef_target_rad, true, false)) {
+                control_axis(_angle_ef_target_rad, false);
+            }
+            break;
+
+        case MAV_MOUNT_MODE_HOME_LOCATION:
+            // constantly update the home location:
+            if (!AP::ahrs().home_is_set()) {
+                break;
+            }
+            _state._roi_target = AP::ahrs().get_home();
+            _state._roi_target_set = true;
+            if (calc_angle_to_roi_target(_angle_ef_target_rad, true, false)) {
+                control_axis(_angle_ef_target_rad, false);
+            }
+            break;
+
+        case MAV_MOUNT_MODE_SYSID_TARGET:
+            if (calc_angle_to_sysid_target(_angle_ef_target_rad,
+                                           true,
+                                           false)) {
                 control_axis(_angle_ef_target_rad, false);
             }
             break;
@@ -286,3 +305,4 @@ void AP_Mount_Alexmos::read_incoming()
         }
     }
 }
+#endif // HAL_MOUNT_ENABLED

@@ -27,6 +27,7 @@
 #include <AP_HAL/utility/sparse-endian.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_Math/crc.h>
+#include <GCS_MAVLink/GCS.h>
 
 extern const AP_HAL::HAL &hal;
 
@@ -71,9 +72,7 @@ bool AP_Airspeed_MS5525::init()
         if (!dev) {
             continue;
         }
-        if (!dev->get_semaphore()->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
-            continue;
-        }
+        WITH_SEMAPHORE(dev->get_semaphore());
 
         // lots of retries during probe
         dev->set_retries(5);
@@ -81,26 +80,27 @@ bool AP_Airspeed_MS5525::init()
         found = read_prom();
         
         if (found) {
-            printf("MS5525: Found sensor on bus %u address 0x%02x\n", get_bus(), addresses[i]);
+            GCS_SEND_TEXT(MAV_SEVERITY_INFO, "MS5525[%u]: Found on bus %u addr 0x%02x", get_instance(), get_bus(), addresses[i]);
             break;
         }
-        dev->get_semaphore()->give();
     }
     if (!found) {
-        printf("MS5525: no sensor found\n");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "MS5525[%u]: no sensor found", get_instance());
         return false;
     }
 
     // Send a command to read temperature first
+    WITH_SEMAPHORE(dev->get_semaphore());
     uint8_t reg = REG_CONVERT_TEMPERATURE;
     dev->transfer(&reg, 1, nullptr, 0);
     state = 0;
     command_send_us = AP_HAL::micros();
 
+    dev->set_device_type(uint8_t(DevType::MS5525));
+    set_bus_id(dev->get_bus_id());
+
     // drop to 2 retries for runtime
     dev->set_retries(2);
-
-    dev->get_semaphore()->give();
 
     // read at 80Hz
     dev->register_periodic_callback(1000000UL/80U,
@@ -264,11 +264,11 @@ void AP_Airspeed_MS5525::timer()
 // return the current differential_pressure in Pascal
 bool AP_Airspeed_MS5525::get_differential_pressure(float &_pressure)
 {
+    WITH_SEMAPHORE(sem);
+
     if ((AP_HAL::millis() - last_sample_time_ms) > 100) {
         return false;
     }
-
-    WITH_SEMAPHORE(sem);
 
     if (press_count > 0) {
         pressure = pressure_sum / press_count;
@@ -283,11 +283,11 @@ bool AP_Airspeed_MS5525::get_differential_pressure(float &_pressure)
 // return the current temperature in degrees C, if available
 bool AP_Airspeed_MS5525::get_temperature(float &_temperature)
 {
+    WITH_SEMAPHORE(sem);
+
     if ((AP_HAL::millis() - last_sample_time_ms) > 100) {
         return false;
     }
-
-    WITH_SEMAPHORE(sem);
 
     if (temp_count > 0) {
         temperature = temperature_sum / temp_count;

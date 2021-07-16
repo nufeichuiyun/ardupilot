@@ -2,6 +2,15 @@
 
 #include <GCS_MAVLink/GCS_MAVLink.h>
 #include "AccelCalibrator.h"
+#include "AP_Vehicle/AP_Vehicle_Type.h"
+
+#ifndef HAL_INS_ACCELCAL_ENABLED
+#ifndef HAL_NO_GCS
+#define HAL_INS_ACCELCAL_ENABLED 1
+#else
+#define HAL_INS_ACCELCAL_ENABLED 0
+#endif
+#endif
 
 #define AP_ACCELCAL_MAX_NUM_CLIENTS 4
 class GCS_MAVLINK;
@@ -34,6 +43,9 @@ public:
     static void register_client(AP_AccelCal_Client* client);
 
     void handleMessage(const mavlink_message_t &msg);
+
+    // true if we are in a calibration process
+    bool running(void) const;
 
 private:
     GCS_MAVLINK *_gcs;

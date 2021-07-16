@@ -39,9 +39,9 @@
 
 #define DEBUG 0
 
-namespace Linux {
+extern const AP_HAL::HAL& hal;
 
-static const AP_HAL::HAL &hal = AP_HAL::get_HAL();
+namespace Linux {
 
 #define MHZ (1000U*1000U)
 #define KHZ (1000U)
@@ -76,6 +76,11 @@ SPIDesc SPIDeviceManager::_device[] = {
     SPIDesc("ms5611",     2, 0, SPI_MODE_3, 8, BBB_P9_42,  10*MHZ,10*MHZ),
     SPIDesc("mpu6000",    2, 0, SPI_MODE_3, 8, BBB_P9_28,  500*1000, 20*MHZ),
     SPIDesc("mpu9250",    2, 0, SPI_MODE_3, 8, BBB_P9_23,  1*MHZ, 11*MHZ),
+};
+#elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIGATOR
+SPIDesc SPIDeviceManager::_device[] = {
+    SPIDesc("led",        0, 0, SPI_MODE_0, 8, SPI_CS_KERNEL,  6*MHZ, 6*MHZ),
+    SPIDesc("icm20602",   1, 2, SPI_MODE_0, 8, SPI_CS_KERNEL,  1*MHZ, 10*MHZ),
 };
 #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO || CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_NAVIO2
 SPIDesc SPIDeviceManager::_device[] = {
@@ -194,7 +199,7 @@ SPIBus::~SPIBus()
 
 void SPIBus::start_cb()
 {
-    sem.take(HAL_SEMAPHORE_BLOCK_FOREVER);
+    sem.take_blocking();
 }
 
 void SPIBus::end_cb()
@@ -205,13 +210,12 @@ void SPIBus::end_cb()
 
 void SPIBus::open(uint16_t subdev)
 {
-    char path[sizeof("/dev/spidevXXXXX.XXXXX")];
-
     /* Already open by another device */
     if (fd[subdev] >= 0) {
         return;
     }
 
+    char path[32];
     snprintf(path, sizeof(path), "/dev/spidev%u.%u", bus, subdev);
     fd[subdev] = ::open(path, O_RDWR | O_CLOEXEC);
     if (fd[subdev] < 0) {
@@ -268,8 +272,6 @@ bool SPIDevice::transfer(const uint8_t *send, uint32_t send_len,
     struct spi_ioc_transfer msgs[2] = { };
     unsigned nmsgs = 0;
     int fd = _bus.fd[_desc.subdev];
-
-    assert(fd >= 0);
 
     if (send && send_len != 0) {
         msgs[nmsgs].tx_buf = (uint64_t) send;
@@ -349,8 +351,6 @@ bool SPIDevice::transfer_fullduplex(const uint8_t *send, uint8_t *recv,
 {
     struct spi_ioc_transfer msgs[1] = { };
     int fd = _bus.fd[_desc.subdev];
-
-    assert(fd >= 0);
 
     if (!send || !recv || len == 0) {
         return false;

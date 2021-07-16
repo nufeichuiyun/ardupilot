@@ -1,31 +1,56 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
+import fnmatch
+
 def build(bld):
-    if not bld.env.BOARD in ['f103-periph', 'CUAV_GPS']:
+    targets = bld.ap_periph_boards()
+    valid_target = False
+    for t in targets:
+        if fnmatch.fnmatch(bld.env.BOARD, t):
+            valid_target = True
+    if not valid_target:
         return
 
+    if bld.env.AP_PERIPH_HEAVY:
+        libraries = bld.ap_get_all_libraries()
+        bld.env.DEFINES += ['HAL_BOARD_AP_PERIPH_HEAVY']
+    else:
+        libraries = ['AP_Common',
+                     'AP_HAL',
+                     'AP_HAL_Empty',
+                     'AP_Math',
+                     'AP_BoardConfig',
+                     'AP_BattMonitor',
+                     'AP_CANManager',
+                     'AP_Param',
+                     'StorageManager',
+                     'AP_FlashStorage',
+                     'AP_RAMTRON',
+                     'AP_GPS',
+                     'AP_SerialManager',
+                     'AP_RTC',
+                     'AP_Compass',
+                     'AP_Baro',
+                     'Filter',
+                     'AP_InternalError',
+                     'AP_Airspeed',
+                     'AP_RangeFinder',
+                     'AP_ROMFS',
+                     'AP_MSP',
+                     'SRV_Channel',
+                     'AP_Notify',
+                     'AP_SerialLED',
+                     'AP_Filesystem',
+                     'AP_InertialSensor',
+                     'AP_AccelCal',
+                     'AP_Logger',
+                     'AC_PID',
+                     ]
     bld.ap_stlib(
         name= 'AP_Periph_libs',
         ap_vehicle='AP_Periph',
-        ap_libraries= [
-        'AP_Buffer',
-        'AP_Common',
-        'AP_HAL',
-        'AP_HAL_Empty',
-        'AP_Math',
-        'AP_BoardConfig',
-        'AP_Param',
-        'StorageManager',
-        'AP_FlashStorage',
-        'AP_GPS',
-        'AP_SerialManager',
-        'AP_RTC',
-        'AP_Compass',
-        'AP_Baro',
-        'Filter',
-        'AP_InternalError',
-        ],
+        ap_libraries= libraries,
         exclude_src=[
             'libraries/AP_HAL_ChibiOS/Storage.cpp'
         ]
@@ -45,6 +70,6 @@ def build(bld):
 
     bld(
         # build libcanard headers
-        rule="python3 ../../modules/libcanard/dsdl_compiler/libcanard_dsdlc --header_only --outdir ${BUILDROOT}/modules/libcanard/dsdlc_generated ../../modules/uavcan/dsdl/uavcan ../../libraries/AP_UAVCAN/dsdl/ardupilot ../../libraries/AP_UAVCAN/dsdl/com",
+        rule="python3 ${SRCROOT}/modules/libcanard/dsdl_compiler/libcanard_dsdlc --header_only --outdir ${BUILDROOT}/modules/libcanard/dsdlc_generated ${SRCROOT}/modules/uavcan/dsdl/uavcan ${SRCROOT}/libraries/AP_UAVCAN/dsdl/ardupilot ${SRCROOT}/libraries/AP_UAVCAN/dsdl/com",
         group='dynamic_sources',
     )

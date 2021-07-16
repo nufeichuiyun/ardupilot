@@ -8,9 +8,8 @@
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_AHRS/AP_AHRS.h>
-#if AP_AHRS_NAVEKF_AVAILABLE
-
 #include "AP_Mount.h"
+#if HAL_SOLO_GIMBAL_ENABLED
 #include "SoloGimbalEKF.h"
 #include <AP_Math/AP_Math.h>
 #include <AP_Common/AP_Common.h>
@@ -67,7 +66,7 @@ public:
 
     void write_logs();
 
-    float get_log_dt() { return _log_dt; }
+    float get_log_dt() const { return _log_dt; }
 
     void disable_torque_report() { _gimbalParams.set_param(GMB_PARAM_GMB_SND_TORQUE, 0); }
     void fetch_params() { _gimbalParams.fetch_params(); }
@@ -84,13 +83,13 @@ private:
     void update_joint_angle_est();
 
     Vector3f get_ang_vel_dem_yaw(const Quaternion &quatEst);
-    Vector3f get_ang_vel_dem_tilt(const Quaternion &quatEst);
-    Vector3f get_ang_vel_dem_feedforward(const Quaternion &quatEst);
+    Vector3f get_ang_vel_dem_roll_tilt(const Quaternion &quatEst);
+    Vector3f get_ang_vel_dem_feedforward(const Quaternion &quatEst) const;
     Vector3f get_ang_vel_dem_gyro_bias();
     Vector3f get_ang_vel_dem_body_lock();
 
-    void gimbal_ang_vel_to_joint_rates(const Vector3f& ang_vel, Vector3f& joint_rates);
-    void joint_rates_to_gimbal_ang_vel(const Vector3f& joint_rates, Vector3f& ang_vel);
+    void gimbal_ang_vel_to_joint_rates(const Vector3f& ang_vel, Vector3f& joint_rates) const;
+    void joint_rates_to_gimbal_ang_vel(const Vector3f& joint_rates, Vector3f& ang_vel) const;
 
     void readVehicleDeltaAngle(uint8_t ins_index, Vector3f &dAng);
 
@@ -101,7 +100,7 @@ private:
 
     gimbal_mode_t get_mode();
 
-    bool joints_near_limits();
+    bool joints_near_limits() const;
 
     // private member variables
     SoloGimbalEKF            _ekf;      // state of small EKF for gimbal
@@ -146,4 +145,4 @@ private:
     Vector3f _log_del_vel;
 };
 
-#endif // AP_AHRS_NAVEKF_AVAILABLE
+#endif // HAL_SOLO_GIMBAL_ENABLED

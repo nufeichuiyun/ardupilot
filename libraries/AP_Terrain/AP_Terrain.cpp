@@ -30,6 +30,12 @@ extern const AP_HAL::HAL& hal;
 
 AP_Terrain *AP_Terrain::singleton;
 
+#if APM_BUILD_TYPE(APM_BUILD_ArduSub)
+#define TERRAIN_ENABLE_DEFAULT 0
+#else
+#define TERRAIN_ENABLE_DEFAULT 1
+#endif
+
 // table of user settable parameters
 const AP_Param::GroupInfo AP_Terrain::var_info[] = {
     // @Param: ENABLE
@@ -37,16 +43,23 @@ const AP_Param::GroupInfo AP_Terrain::var_info[] = {
     // @Description: enable terrain data. This enables the vehicle storing a database of terrain data on the SD card. The terrain data is requested from the ground station as needed, and stored for later use on the SD card. To be useful the ground station must support TERRAIN_REQUEST messages and have access to a terrain database, such as the SRTM database.
     // @Values: 0:Disable,1:Enable
     // @User: Advanced
-    AP_GROUPINFO_FLAGS("ENABLE", 0, AP_Terrain, enable, 1, AP_PARAM_FLAG_ENABLE),
+    AP_GROUPINFO_FLAGS("ENABLE", 0, AP_Terrain, enable, TERRAIN_ENABLE_DEFAULT, AP_PARAM_FLAG_ENABLE),
 
     // @Param: SPACING
     // @DisplayName: Terrain grid spacing
-    // @Description: Distance between terrain grid points in meters. This controls the horizontal resolution of the terrain data that is stored on te SD card and requested from the ground station. If your GCS is using the worldwide SRTM database then a resolution of 100 meters is appropriate. Some parts of the world may have higher resolution data available, such as 30 meter data available in the SRTM database in the USA. The grid spacing also controls how much data is kept in memory during flight. A larger grid spacing will allow for a larger amount of data in memory. A grid spacing of 100 meters results in the vehicle keeping 12 grid squares in memory with each grid square having a size of 2.7 kilometers by 3.2 kilometers. Any additional grid squares are stored on the SD once they are fetched from the GCS and will be demand loaded as needed.
+    // @Description: Distance between terrain grid points in meters. This controls the horizontal resolution of the terrain data that is stored on te SD card and requested from the ground station. If your GCS is using the ArduPilot SRTM database like Mission Planner or MAVProxy, then a resolution of 100 meters is appropriate. Grid spacings lower than 100 meters waste SD card space if the GCS cannot provide that resolution. The grid spacing also controls how much data is kept in memory during flight. A larger grid spacing will allow for a larger amount of data in memory. A grid spacing of 100 meters results in the vehicle keeping 12 grid squares in memory with each grid square having a size of 2.7 kilometers by 3.2 kilometers. Any additional grid squares are stored on the SD once they are fetched from the GCS and will be loaded as needed.
     // @Units: m
     // @Increment: 1
     // @User: Advanced
     AP_GROUPINFO("SPACING",   1, AP_Terrain, grid_spacing, 100),
 
+    // @Param: OPTIONS
+    // @DisplayName: Terrain options
+    // @Description: Options to change behaviour of terrain system
+    // @Bitmask: 0:Disable Download
+    // @User: Advanced
+    AP_GROUPINFO("OPTIONS",   2, AP_Terrain, options, 0),
+    
     AP_GROUPEND
 };
 
@@ -296,6 +309,7 @@ float AP_Terrain::lookahead(float bearing, float distance, float climb_ratio)
  */
 void AP_Terrain::update(void)
 {
+    if (!enable) { return; }
     // just schedule any needed disk IO
     schedule_disk_io();
 
@@ -376,7 +390,7 @@ void AP_Terrain::log_terrain_data()
  */
 bool AP_Terrain::allocate(void)
 {
-    if (enable == 0) {
+    if (enable == 0 || memory_alloc_failed) {
         return false;
     }
     if (cache != nullptr) {
@@ -384,12 +398,21 @@ bool AP_Terrain::allocate(void)
     }
     cache = (struct grid_cache *)calloc(TERRAIN_GRID_BLOCK_CACHE_SIZE, sizeof(cache[0]));
     if (cache == nullptr) {
-        enable.set(0);
         gcs().send_text(MAV_SEVERITY_CRITICAL, "Terrain: Allocation failed");
+        memory_alloc_failed = true;
         return false;
     }
     cache_size = TERRAIN_GRID_BLOCK_CACHE_SIZE;
     return true;
 }
+
+namespace AP {
+
+AP_Terrain *terrain()
+{
+    return AP_Terrain::get_singleton();
+}
+
+};
 
 #endif // AP_TERRAIN_AVAILABLE

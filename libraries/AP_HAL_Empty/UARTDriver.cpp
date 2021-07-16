@@ -1,5 +1,6 @@
 
 #include "UARTDriver.h"
+#include <AP_Common/ExpandingString.h>
 
 Empty::UARTDriver::UARTDriver() {}
 
@@ -15,6 +16,7 @@ bool Empty::UARTDriver::tx_pending() { return false; }
 uint32_t Empty::UARTDriver::available() { return 0; }
 uint32_t Empty::UARTDriver::txspace() { return 1; }
 int16_t Empty::UARTDriver::read() { return -1; }
+bool Empty::UARTDriver::discard_input() { return false; }
 
 /* Empty implementations of Print virtual methods */
 size_t Empty::UARTDriver::write(uint8_t c) { return 0; }
@@ -26,4 +28,9 @@ size_t Empty::UARTDriver::write(const uint8_t *buffer, size_t size)
         n += write(*buffer++);
     }
     return n;
+}
+
+void Empty::UARTDriver::uart_info(ExpandingString &str)
+{
+    str.printf("EMPTY\n");
 }

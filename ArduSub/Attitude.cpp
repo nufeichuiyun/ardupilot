@@ -34,7 +34,7 @@ void Sub::get_pilot_desired_lean_angles(float roll_in, float pitch_in, float &ro
 // get_pilot_desired_heading - transform pilot's yaw input into a
 // desired yaw rate
 // returns desired yaw rate in centi-degrees per second
-float Sub::get_pilot_desired_yaw_rate(int16_t stick_angle)
+float Sub::get_pilot_desired_yaw_rate(int16_t stick_angle) const
 {
     // convert pilot input to the desired yaw rate
     return stick_angle * g.acro_yaw_p;
@@ -147,8 +147,9 @@ float Sub::get_surface_tracking_climb_rate(int16_t target_rate, float current_al
     }
 
     // do not let target altitude get too far from current altitude above ground
-    // Note: the 750cm limit is perhaps too wide but is consistent with the regular althold limits and helps ensure a smooth transition
-    target_rangefinder_alt = constrain_float(target_rangefinder_alt,rangefinder_state.alt_cm-pos_control.get_leash_down_z(),rangefinder_state.alt_cm+pos_control.get_leash_up_z());
+    target_rangefinder_alt = constrain_float(target_rangefinder_alt,
+        rangefinder_state.alt_cm - pos_control.get_pos_error_z_down_cm(),
+        rangefinder_state.alt_cm + pos_control.get_pos_error_z_up_cm());
 
     // calc desired velocity correction from target rangefinder alt vs actual rangefinder alt (remove the error already passed to Altitude controller to avoid oscillations)
     distance_error = (target_rangefinder_alt - rangefinder_state.alt_cm) - (current_alt_target - current_alt);
@@ -195,7 +196,7 @@ void Sub::rotate_body_frame_to_NE(float &x, float &y)
 }
 
 // It will return the PILOT_SPEED_DN value if non zero, otherwise if zero it returns the PILOT_SPEED_UP value.
-uint16_t Sub::get_pilot_speed_dn()
+uint16_t Sub::get_pilot_speed_dn() const
 {
     if (g.pilot_speed_dn == 0) {
         return abs(g.pilot_speed_up);

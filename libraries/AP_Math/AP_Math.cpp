@@ -32,7 +32,12 @@ is_equal(const Arithmetic1 v_1, const Arithmetic2 v_2)
         return fabs(v_1 - v_2) < std::numeric_limits<double>::epsilon();
     }
 #endif
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wabsolute-value"
+    // clang doesn't realise we catch the double case above and warns
+    // about loss of precision here.
     return fabsf(v_1 - v_2) < std::numeric_limits<float>::epsilon();
+#pragma clang diagnostic pop
 }
 
 template bool is_equal<int>(const int v_1, const int v_2);
@@ -78,12 +83,27 @@ template float safe_sqrt<float>(const float v);
 template float safe_sqrt<double>(const double v);
 
 /*
+  replacement for std::swap() needed for STM32
+ */
+static void swap_float(float &f1, float &f2)
+{
+    float tmp = f1;
+    f1 = f2;
+    f2 = tmp;
+}
+
+/*
  * linear interpolation based on a variable in a range
  */
 float linear_interpolate(float low_output, float high_output,
                          float var_value,
                          float var_low, float var_high)
 {
+    if (var_low > var_high) {
+        // support either polarity
+        swap_float(var_low, var_high);
+        swap_float(low_output, high_output);
+    }
     if (var_value <= var_low) {
         return low_output;
     }
@@ -98,7 +118,7 @@ float linear_interpolate(float low_output, float high_output,
  * alpha range: [0,1] min to max expo
  * input range: [-1,1]
  */
-float expo_curve(float alpha, float x)
+constexpr float expo_curve(float alpha, float x)
 {
     return (1.0f - alpha) * x + alpha * x * x * x;
 }
@@ -124,90 +144,149 @@ float throttle_curve(float thr_mid, float alpha, float thr_in)
 }
 
 template <typename T>
-float wrap_180(const T angle, float unit_mod)
+T wrap_180(const T angle)
 {
-    auto res = wrap_360(angle, unit_mod);
-    if (res > 180.f * unit_mod) {
-        res -= 360.f * unit_mod;
+    auto res = wrap_360(angle);
+    if (res > T(180)) {
+        res -= T(360);
     }
     return res;
 }
 
-template float wrap_180<int>(const int angle, float unit_mod);
-template float wrap_180<short>(const short angle, float unit_mod);
-template float wrap_180<float>(const float angle, float unit_mod);
-template float wrap_180<double>(const double angle, float unit_mod);
-
 template <typename T>
-auto wrap_180_cd(const T angle) -> decltype(wrap_180(angle, 100.f))
+T wrap_180_cd(const T angle)
 {
-    return wrap_180(angle, 100.f);
+    auto res = wrap_360_cd(angle);
+    if (res > T(18000)) {
+        res -= T(36000);
+    }
+    return res;
 }
 
-template auto wrap_180_cd<float>(const float angle) -> decltype(wrap_180(angle, 100.f));
-template auto wrap_180_cd<int>(const int angle) -> decltype(wrap_180(angle, 100.f));
-template auto wrap_180_cd<long>(const long angle) -> decltype(wrap_180(angle, 100.f));
-template auto wrap_180_cd<short>(const short angle) -> decltype(wrap_180(angle, 100.f));
-template auto wrap_180_cd<double>(const double angle) -> decltype(wrap_360(angle, 100.f));
+template int wrap_180<int>(const int angle);
+template short wrap_180<short>(const short angle);
+template float wrap_180<float>(const float angle);
+#ifdef ALLOW_DOUBLE_MATH_FUNCTIONS
+template double wrap_180<double>(const double angle);
+#endif
 
-template <typename T>
-float wrap_360(const T angle, float unit_mod)
+template int wrap_180_cd<int>(const int angle);
+template long wrap_180_cd<long>(const long angle);
+template short wrap_180_cd<short>(const short angle);
+template float wrap_180_cd<float>(const float angle);
+#ifdef ALLOW_DOUBLE_MATH_FUNCTIONS
+template double wrap_180_cd<double>(const double angle);
+#endif
+
+float wrap_360(const float angle)
 {
-    const float ang_360 = 360.f * unit_mod;
-    float res = fmodf(static_cast<float>(angle), ang_360);
+    float res = fmodf(angle, 360.0f);
     if (res < 0) {
-        res += ang_360;
+        res += 360.0f;
     }
     return res;
 }
 
-template float wrap_360<int>(const int angle, float unit_mod);
-template float wrap_360<short>(const short angle, float unit_mod);
-template float wrap_360<long>(const long angle, float unit_mod);
-template float wrap_360<float>(const float angle, float unit_mod);
-template float wrap_360<double>(const double angle, float unit_mod);
-
-template <typename T>
-auto wrap_360_cd(const T angle) -> decltype(wrap_360(angle, 100.f))
+#ifdef ALLOW_DOUBLE_MATH_FUNCTIONS
+double wrap_360(const double angle)
 {
-    return wrap_360(angle, 100.f);
+    double res = fmod(angle, 360.0);
+    if (res < 0) {
+        res += 360.0;
+    }
+    return res;
+}
+#endif
+
+int wrap_360(const int angle)
+{
+    int res = angle % 360;
+    if (res < 0) {
+        res += 360;
+    }
+    return res;
 }
 
-template auto wrap_360_cd<float>(const float angle) -> decltype(wrap_360(angle, 100.f));
-template auto wrap_360_cd<int>(const int angle) -> decltype(wrap_360(angle, 100.f));
-template auto wrap_360_cd<long>(const long angle) -> decltype(wrap_360(angle, 100.f));
-template auto wrap_360_cd<short>(const short angle) -> decltype(wrap_360(angle, 100.f));
-template auto wrap_360_cd<double>(const double angle) -> decltype(wrap_360(angle, 100.f));
-
-template <typename T>
-float wrap_PI(const T radian)
+float wrap_360_cd(const float angle)
 {
-    auto res = wrap_2PI(radian);
+    float res = fmodf(angle, 36000.0f);
+    if (res < 0) {
+        res += 36000.0f;
+    }
+    return res;
+}
+
+#ifdef ALLOW_DOUBLE_MATH_FUNCTIONS
+double wrap_360_cd(const double angle)
+{
+    double res = fmod(angle, 36000.0);
+    if (res < 0) {
+        res += 36000.0;
+    }
+    return res;
+}
+#endif
+
+int wrap_360_cd(const int angle)
+{
+    int res = angle % 36000;
+    if (res < 0) {
+        res += 36000;
+    }
+    return res;
+}
+
+long wrap_360_cd(const long angle)
+{
+    long res = angle % 36000;
+    if (res < 0) {
+        res += 36000;
+    }
+    return res;
+}
+
+ftype wrap_PI(const ftype radian)
+{
+    ftype res = wrap_2PI(radian);
     if (res > M_PI) {
         res -= M_2PI;
     }
     return res;
 }
 
-template float wrap_PI<int>(const int radian);
-template float wrap_PI<short>(const short radian);
-template float wrap_PI<float>(const float radian);
-template float wrap_PI<double>(const double radian);
-
-template <typename T>
-float wrap_2PI(const T radian)
+ftype wrap_2PI(const ftype radian)
 {
-    float res = fmodf(static_cast<float>(radian), M_2PI);
+    ftype res = fmodF(radian, M_2PI);
     if (res < 0) {
         res += M_2PI;
     }
     return res;
 }
 
-template float wrap_2PI<int>(const int radian);
-template float wrap_2PI<short>(const short radian);
-template float wrap_2PI<float>(const float radian);
-template float wrap_2PI<double>(const double radian);
+template <typename T>
+T constrain_value_line(const T amt, const T low, const T high, uint32_t line)
+{
+    // the check for NaN as a float prevents propagation of floating point
+    // errors through any function that uses constrain_value(). The normal
+    // float semantics already handle -Inf and +Inf
+    if (isnan(amt)) {
+        AP::internalerror().error(AP_InternalError::error_t::constraining_nan, line);
+        return (low + high) / 2;
+    }
+
+    if (amt < low) {
+        return low;
+    }
+
+    if (amt > high) {
+        return high;
+    }
+
+    return amt;
+}
+
+template float constrain_value_line<float>(const float amt, const float low, const float high, uint32_t line);
+template double constrain_value_line<double>(const double amt, const double low, const double high, uint32_t line);
 
 template <typename T>
 T constrain_value(const T amt, const T low, const T high)
@@ -215,9 +294,11 @@ T constrain_value(const T amt, const T low, const T high)
     // the check for NaN as a float prevents propagation of floating point
     // errors through any function that uses constrain_value(). The normal
     // float semantics already handle -Inf and +Inf
-    if (isnan(amt)) {
-        AP::internalerror().error(AP_InternalError::error_t::constraining_nan);
-        return (low + high) / 2;
+    if (std::is_floating_point<T>::value) {
+        if (isnan(amt)) {
+            INTERNAL_ERROR(AP_InternalError::error_t::constraining_nan);
+            return (low + high) / 2;
+        }
     }
 
     if (amt < low) {
@@ -271,23 +352,6 @@ Vector3f rand_vec3f(void)
 }
 #endif
 
-bool is_valid_octal(uint16_t octal)
-{
-    // treat "octal" as decimal and test if any decimal digit is > 7
-    if (octal > 7777) {
-        return false;
-    } else if (octal % 10 > 7) {
-        return false;
-    } else if ((octal % 100)/10 > 7) {
-        return false;
-    } else if ((octal % 1000)/100 > 7) {
-        return false;
-    } else if ((octal % 10000)/1000 > 7) {
-        return false;
-    }
-    return true;
-}
-
 /*
   return true if two rotations are equivalent
   This copes with the fact that we have some duplicates, like ROLL_180_YAW_90 and PITCH_180_YAW_270
@@ -305,3 +369,72 @@ bool rotation_equal(enum Rotation r1, enum Rotation r2)
     return (v1 - v2).length() < 0.001;
 }
 
+/*
+ * return a velocity correction (in m/s in NED) for a sensor's position given it's position offsets
+ * this correction should be added to the sensor NED measurement
+ * sensor_offset_bf is in meters in body frame (Foward, Right, Down)
+ * rot_ef_to_bf is a rotation matrix to rotate from earth-frame (NED) to body frame
+ * angular_rate is rad/sec
+ */
+Vector3F get_vel_correction_for_sensor_offset(const Vector3F &sensor_offset_bf, const Matrix3F &rot_ef_to_bf, const Vector3F &angular_rate)
+{
+    if (sensor_offset_bf.is_zero()) {
+        return Vector3F();
+    }
+
+    // correct velocity
+    const Vector3F vel_offset_body = angular_rate % sensor_offset_bf;
+    return rot_ef_to_bf.mul_transpose(vel_offset_body) * -1.0;
+}
+
+/*
+  calculate a low pass filter alpha value
+ */
+float calc_lowpass_alpha_dt(float dt, float cutoff_freq)
+{
+    if (dt <= 0.0f || cutoff_freq <= 0.0f) {
+        return 1.0;
+    }
+    float rc = 1.0f/(M_2PI*cutoff_freq);
+    return constrain_float(dt/(dt+rc), 0.0f, 1.0f);
+}
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+// fill an array of float with NaN, used to invalidate memory in SITL
+void fill_nanf(float *f, uint16_t count)
+{
+    const float n = std::numeric_limits<float>::signaling_NaN();
+    while (count--) {
+        *f++ = n;
+    }
+}
+
+void fill_nanf(double *f, uint16_t count)
+{
+    while (count--) {
+        *f++ = std::numeric_limits<double>::signaling_NaN();
+    }
+}
+#endif
+
+// Convert 16-bit fixed-point to float
+float fixed2float(const uint16_t input, const uint8_t fractional_bits)
+{
+    return ((float)input / (float)(1U << fractional_bits));
+}
+
+// Convert float to 16-bit fixed-point
+uint16_t float2fixed(const float input, const uint8_t fractional_bits)
+{
+    return (uint16_t)(roundf(input * (1U << fractional_bits)));
+}
+
+/*
+  calculate turn rate in deg/sec given a bank angle and airspeed for a
+  fixed wing aircraft
+ */
+float fixedwing_turn_rate(float bank_angle_deg, float airspeed)
+{
+    bank_angle_deg = constrain_float(bank_angle_deg, -80, 80);
+    return degrees(GRAVITY_MSS*tanf(radians(bank_angle_deg))/MAX(airspeed,1));
+}

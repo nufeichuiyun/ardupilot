@@ -38,24 +38,20 @@
 #define HAL_BOARD_SUBTYPE_LINUX_EDGE       1020
 #define HAL_BOARD_SUBTYPE_LINUX_RST_ZYNQ   1021
 #define HAL_BOARD_SUBTYPE_LINUX_POCKET     1022
+#define HAL_BOARD_SUBTYPE_LINUX_NAVIGATOR  1023
+#define HAL_BOARD_SUBTYPE_LINUX_VNAV       1024
 
-/* HAL CHIBIOS sub-types, starting at 5000 */
+/* HAL CHIBIOS sub-types, starting at 5000
+
+   NOTE!! Do not add more subtypes unless they are really needed. Most
+   boards do not need a subtype defined. It is only needed if we need
+   to use #ifdef'd code to change behaviour
+*/
 #define HAL_BOARD_SUBTYPE_CHIBIOS_SKYVIPER_F412	5000
 #define HAL_BOARD_SUBTYPE_CHIBIOS_FMUV3         5001
 #define HAL_BOARD_SUBTYPE_CHIBIOS_FMUV4         5002
-#define HAL_BOARD_SUBTYPE_CHIBIOS_MINDPXV2      5003
-#define HAL_BOARD_SUBTYPE_CHIBIOS_SPARKY2       5004
-#define HAL_BOARD_SUBTYPE_CHIBIOS_REVOMINI      5005
-#define HAL_BOARD_SUBTYPE_CHIBIOS_MINIPIX       5006
-#define HAL_BOARD_SUBTYPE_CHIBIOS_CRAZYFLIE2    5007
-#define HAL_BOARD_SUBTYPE_CHIBIOS_OMNIBUSF7V2   5008
 #define HAL_BOARD_SUBTYPE_CHIBIOS_GENERIC       5009
-#define HAL_BOARD_SUBTYPE_CHIBIOS_F4BY          5010
-#define HAL_BOARD_SUBTYPE_CHIBIOS_OMNIBUSF4PRO  5011
-#define HAL_BOARD_SUBTYPE_CHIBIOS_AIRBOTF4      5012
 #define HAL_BOARD_SUBTYPE_CHIBIOS_FMUV5         5013
-#define HAL_BOARD_SUBTYPE_CHIBIOS_MATEKF405WING 5014
-#define HAL_BOARD_SUBTYPE_CHIBIOS_FMUV4PRO      5015
 #define HAL_BOARD_SUBTYPE_CHIBIOS_VRBRAIN_V51   5016
 #define HAL_BOARD_SUBTYPE_CHIBIOS_VRBRAIN_V52   5017
 #define HAL_BOARD_SUBTYPE_CHIBIOS_VRUBRAIN_V51  5018
@@ -66,7 +62,7 @@
 #define HAL_INS_NONE         0
 #define HAL_INS_MPU60XX_SPI  2
 #define HAL_INS_MPU60XX_I2C  3
-#define HAL_INS_HIL          4
+#define HAL_INS_HIL_UNUSED   4  // unused
 #define HAL_INS_VRBRAIN      8
 #define HAL_INS_MPU9250_SPI  9
 #define HAL_INS_MPU9250_I2C 13
@@ -77,14 +73,14 @@
 
 /* Barometer driver types */
 #define HAL_BARO_NONE        0
-#define HAL_BARO_HIL         6
+#define HAL_BARO_HIL_UNUSED  6  // unused
 #define HAL_BARO_20789_I2C_I2C  14
 #define HAL_BARO_20789_I2C_SPI  15
 #define HAL_BARO_LPS25H_IMU_I2C 17
 
 /* Compass driver types */
 #define HAL_COMPASS_NONE                0
-#define HAL_COMPASS_HIL                 3
+#define HAL_COMPASS_HIL_UNUSED          3  // unused
 
 /* Heat Types */
 #define HAL_LINUX_HEAT_PWM 1
@@ -92,12 +88,26 @@
 /* CPU classes, used to select if CPU intensive algorithms should be used
  * Note that these are only approximate, not exact CPU speeds. */
 
-/* 150Mhz: PX4 or similar. Assumes:
+/* 150Mhz: STM32F4 or similar. Assumes:
  *  - hardware floating point
- *  - tens of kilobytes of memory available */
+ *  - tens of kilobytes of memory available
+*/
 #define HAL_CPU_CLASS_150  3
+
 /* GigaHz class: SITL, BeagleBone etc. Assumes megabytes of memory available. */
 #define HAL_CPU_CLASS_1000 4
+
+
+/*
+  memory classes, in kbytes. Board must have at least the given amount
+  of memory
+*/
+#define HAL_MEM_CLASS_20   1
+#define HAL_MEM_CLASS_64   2
+#define HAL_MEM_CLASS_192  3
+#define HAL_MEM_CLASS_300  4
+#define HAL_MEM_CLASS_500  5
+#define HAL_MEM_CLASS_1000 6
 
 /* Operating system features
  *
@@ -147,8 +157,8 @@
 #define HAL_COMPASS_HMC5843_I2C_ADDR 0x1E
 #endif
 
-#ifndef HAL_WITH_UAVCAN
-#define HAL_WITH_UAVCAN 0
+#ifndef HAL_NUM_CAN_IFACES
+#define HAL_NUM_CAN_IFACES 0
 #endif
 
 #ifndef HAL_RCINPUT_WITH_AP_RADIO
@@ -170,12 +180,20 @@
 #define HAL_MINIMIZE_FEATURES       0
 #endif
 
-#ifndef HAL_OS_FATFS_IO
-#define HAL_OS_FATFS_IO 0
+#ifndef BOARD_FLASH_SIZE
+#define BOARD_FLASH_SIZE 2048
 #endif
 
-#ifndef HAL_PX4_HAVE_PX4IO
-#define HAL_PX4_HAVE_PX4IO 0
+#ifndef HAL_WITH_DSP
+#if CONFIG_HAL_BOARD == HAL_BOARD_LINUX || defined(HAL_BOOTLOADER_BUILD) || defined(HAL_BUILD_AP_PERIPH) || BOARD_FLASH_SIZE <= 1024
+#define HAL_WITH_DSP 0
+#else
+#define HAL_WITH_DSP !HAL_MINIMIZE_FEATURES
+#endif
+#endif
+
+#ifndef HAL_OS_FATFS_IO
+#define HAL_OS_FATFS_IO 0
 #endif
 
 #ifndef HAL_COMPASS_DEFAULT
@@ -198,6 +216,22 @@
 #define HAL_CAN_DRIVER_DEFAULT 0
 #endif
 
+#ifndef HAL_MAX_CAN_PROTOCOL_DRIVERS
+#if defined(HAL_BOOTLOADER_BUILD)
+    #define HAL_MAX_CAN_PROTOCOL_DRIVERS 0
+#else
+    #define HAL_MAX_CAN_PROTOCOL_DRIVERS HAL_NUM_CAN_IFACES
+#endif
+#endif
+
+#ifndef HAL_CANMANAGER_ENABLED
+#define HAL_CANMANAGER_ENABLED ((HAL_MAX_CAN_PROTOCOL_DRIVERS > 0) && !defined(HAL_BUILD_AP_PERIPH))
+#endif
+
+#ifndef HAL_ENABLE_LIBUAVCAN_DRIVERS
+#define HAL_ENABLE_LIBUAVCAN_DRIVERS HAL_CANMANAGER_ENABLED
+#endif
+
 #ifdef HAVE_LIBDL
 #define AP_MODULE_SUPPORTED 1
 #else
@@ -211,4 +245,22 @@
 
 #ifndef HAL_HAVE_DUAL_USB_CDC
 #define HAL_HAVE_DUAL_USB_CDC 0
+#endif
+
+#if HAL_NUM_CAN_IFACES && CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS
+#define AP_UAVCAN_SLCAN_ENABLED 1
+#else
+#define AP_UAVCAN_SLCAN_ENABLED 0
+#endif
+
+#ifndef USE_LIBC_REALLOC
+#define USE_LIBC_REALLOC 1
+#endif
+
+#ifndef HAL_ENABLE_THREAD_STATISTICS
+#define HAL_ENABLE_THREAD_STATISTICS 0
+#endif
+
+#ifndef HAL_INS_ENABLED
+#define HAL_INS_ENABLED (!defined(HAL_BUILD_AP_PERIPH))
 #endif

@@ -30,6 +30,7 @@ class AP_GPS_SBF : public AP_GPS_Backend
 {
 public:
     AP_GPS_SBF(AP_GPS &_gps, AP_GPS::GPS_State &_state, AP_HAL::UARTDriver *_port);
+    ~AP_GPS_SBF();
 
     AP_GPS::GPS_Status highest_supported_status(void) override { return AP_GPS::GPS_OK_FIX_3D_RTK_FIXED; }
 
@@ -38,17 +39,22 @@ public:
 
     const char *name() const override { return "SBF"; }
 
-    bool is_configured (void) override;
+    bool is_configured (void) const override;
 
     void broadcast_configuration_failure_reason(void) const override;
+
+    bool supports_mavlink_gps_rtk_message(void) const override { return true; };
 
     // get the velocity lag, returns true if the driver is confident in the returned value
     bool get_lag(float &lag_sec) const override { lag_sec = 0.08f; return true; } ;
 
     bool is_healthy(void) const override;
 
+    bool logging_healthy(void) const override;
+
     bool prepare_for_arming(void) override;
 
+    bool get_error_codes(uint32_t &error_codes) const override { error_codes = RxError; return true; };
 
 private:
 
@@ -58,14 +64,32 @@ private:
     static const uint8_t SBF_PREAMBLE1 = '$';
     static const uint8_t SBF_PREAMBLE2 = '@';
 
-    uint8_t _init_blob_index = 0;
-    uint32_t _init_blob_time = 0;
-    const char* _initialisation_blob[5] = {
-    "sso, Stream1, COM1, PVTGeodetic+DOP+ReceiverStatus+VelCovGeodetic, msec100\n",
-    "srd, Moderate, UAV\n",
-    "sem, PVT, 5\n",
-    "spm, Rover, all\n",
-    "sso, Stream2, Dsk1, postprocess+event+comment+ReceiverStatus, msec100\n"};
+    uint8_t _init_blob_index;
+    uint32_t _init_blob_time;
+    enum class Config_State {
+        Baud_Rate,
+        SSO,
+        Blob,
+        SBAS,
+        Complete
+    };
+    Config_State config_step;
+    char *config_string;
+    static constexpr const char* _initialisation_blob[] = {
+    "srd,Moderate,UAV",
+    "sem,PVT,5",
+    "spm,Rover,all",
+    "sso,Stream2,Dsk1,postprocess+event+comment+ReceiverStatus,msec100",
+#if defined (GPS_SBF_EXTRA_CONFIG)
+    GPS_SBF_EXTRA_CONFIG
+#endif
+    };
+    static constexpr const char* sbas_off = "sst, -SBAS";
+    static constexpr const char* sbas_on_blob[] = {
+                                                   "snt,+GEOL1+GEOL5",
+                                                   "sst,+SBAS",
+                                                   "ssbc,auto,Operational,MixedSystems,auto",
+                                                  };
     uint32_t _config_last_ack_time;
 
     const char* _port_enable = "\nSSSSSSSSSS\n";
@@ -82,6 +106,7 @@ private:
         DOP = 4001,
         PVTGeodetic = 4007,
         ReceiverStatus = 4014,
+        BaseVectorGeod = 4028,
         VelCovGeodetic = 5908
     };
 
@@ -118,7 +143,7 @@ private:
          uint16_t VAccuracy;
          uint8_t Misc;
     };
-  
+
     struct PACKED msg4001 // DOP
     {
          uint32_t TOW;
@@ -145,6 +170,33 @@ private:
          // remaining data is AGCData, which we don't have a use for, don't extract the data
     };
 
+    struct PACKED VectorInfoGeod {
+        uint8_t NrSV;
+        uint8_t Error;
+        uint8_t Mode;
+        uint8_t Misc;
+        double DeltaEast;
+        double DeltaNorth;
+        double DeltaUp;
+        float DeltaVe;
+        float DeltaVn;
+        float DeltaVu;
+        uint16_t Azimuth;
+        int16_t Elevation;
+        uint8_t ReferenceID;
+        uint16_t CorrAge;
+        uint32_t SignalInfo;
+    };
+
+    struct PACKED msg4028 // BaseVectorGeod
+    {
+        uint32_t TOW;
+        uint16_t WNc;
+        uint8_t N; // number of baselines
+        uint8_t SBLength;
+        VectorInfoGeod info; // there can be multiple baselines here, but we will only consume the first one, so don't worry about anything after
+    };
+
     struct PACKED msg5908 // VelCovGeodetic
     {
         uint32_t TOW;
@@ -167,6 +219,7 @@ private:
         msg4007 msg4007u;
         msg4001 msg4001u;
         msg4014 msg4014u;
+        msg4028 msg4028u;
         msg5908 msg5908u;
         uint8_t bytes[256];
     };
@@ -203,4 +256,9 @@ private:
         INVALIDCONFIG = (1 << 10),  // set if one or more configuration file (permission or channel configuration) is invalid or absent.
         OUTOFGEOFENCE = (1 << 11),  // set if the receiver is currently out of its permitted region of operation (geo-fencing).
     };
+
+    static constexpr const char *portIdentifiers[] = { "COM", "USB", "IP1", "NTR", "IPS", "IPR" };
+    char portIdentifier[5];
+    uint8_t portLength;
+    bool readyForCommand;
 };

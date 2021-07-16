@@ -1,5 +1,5 @@
-/// @file	AP_LandingGear.h
-/// @brief	Landing gear control library
+/// @file   AP_LandingGear.h
+/// @brief  Landing gear control library
 #pragma once
 
 #include <AP_Param/AP_Param.h>
@@ -13,8 +13,8 @@
 #define DEFAULT_PIN_WOW_POL 0
 #endif
 
-/// @class	AP_LandingGear
-/// @brief	Class managing the control of landing gear
+/// @class  AP_LandingGear
+/// @brief  Class managing the control of landing gear
 class AP_LandingGear {
 public:
     AP_LandingGear() {
@@ -76,14 +76,18 @@ public:
     /// set landing gear position to retract, deploy or deploy-and-keep-deployed
     void set_position(LandingGearCommand cmd);
     
-    uint32_t get_gear_state_duration_ms();
-    uint32_t get_wow_state_duration_ms();
+    uint32_t get_gear_state_duration_ms() const;
+    uint32_t get_wow_state_duration_ms() const;
 
     static const struct AP_Param::GroupInfo        var_info[];
     
     void update(float height_above_ground_m);
     
     bool check_before_land(void);
+
+    // retract after takeoff or deploy for landing depending on the OPTIONS parameter
+    void retract_after_takeoff();
+    void deploy_for_landing();
 
 private:
     // Parameters
@@ -95,6 +99,13 @@ private:
     AP_Int8     _pin_weight_on_wheels_polarity;
     AP_Int16    _deploy_alt;
     AP_Int16    _retract_alt;
+    AP_Int16    _options;
+
+    // bitmask of options
+    enum class Option : uint16_t {
+        RETRACT_AFTER_TAKEOFF = (1U<<0),
+        DEPLOY_DURING_LANDING = (1U<<1)
+    };
 
     // internal variables
     bool        _deployed;              // true if the landing gear has been deployed, initialized false

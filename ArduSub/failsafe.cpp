@@ -90,9 +90,9 @@ void Sub::failsafe_sensors_check()
 
     if (control_mode == ALT_HOLD || control_mode == SURFACE || mode_requires_GPS(control_mode)) {
         // This should always succeed
-        if (!set_mode(MANUAL, MODE_REASON_BAD_DEPTH)) {
+        if (!set_mode(MANUAL, ModeReason::BAD_DEPTH)) {
             // We should never get here
-            arming.disarm();
+            arming.disarm(AP_Arming::Method::BADFLOWOFCONTROL);
         }
     }
 }
@@ -110,10 +110,9 @@ void Sub::failsafe_ekf_check()
 
     float posVar, hgtVar, tasVar;
     Vector3f magVar;
-    Vector2f offset;
     float compass_variance;
     float vel_variance;
-    ahrs.get_variances(vel_variance, posVar, hgtVar, magVar, tasVar, offset);
+    ahrs.get_variances(vel_variance, posVar, hgtVar, magVar, tasVar);
     compass_variance = magVar.length();
 
     if (compass_variance < g.fs_ekf_thresh && vel_variance < g.fs_ekf_thresh) {
@@ -146,7 +145,7 @@ void Sub::failsafe_ekf_check()
     }
 
     if (g.fs_ekf_action == FS_EKF_ACTION_DISARM) {
-        arming.disarm();
+        arming.disarm(AP_Arming::Method::EKFFAILSAFE);
     }
 }
 
@@ -157,10 +156,10 @@ void Sub::handle_battery_failsafe(const char* type_str, const int8_t action)
 
     switch((Failsafe_Action)action) {
         case Failsafe_Action_Surface:
-            set_mode(SURFACE, MODE_REASON_BATTERY_FAILSAFE);
+            set_mode(SURFACE, ModeReason::BATTERY_FAILSAFE);
             break;
         case Failsafe_Action_Disarm:
-            arming.disarm();
+            arming.disarm(AP_Arming::Method::BATTERYFAILSAFE);
             break;
         case Failsafe_Action_Warn:
         case Failsafe_Action_None:
@@ -194,7 +193,7 @@ void Sub::failsafe_pilot_input_check()
     set_neutral_controls();
 
     if(g.failsafe_pilot_input == FS_PILOT_INPUT_DISARM) {
-        arming.disarm();
+        arming.disarm(AP_Arming::Method::PILOT_INPUT_FAILSAFE);
     }
 #endif
 }
@@ -300,7 +299,7 @@ void Sub::failsafe_leak_check()
 
     // Handle failsafe action
     if (failsafe.leak && g.failsafe_leak == FS_LEAK_SURFACE && motors.armed()) {
-        set_mode(SURFACE, MODE_REASON_LEAK_FAILSAFE);
+        set_mode(SURFACE, ModeReason::LEAK_FAILSAFE);
     }
 }
 
@@ -309,14 +308,20 @@ void Sub::failsafe_gcs_check()
 {
     // return immediately if we have never had contact with a gcs, or if gcs failsafe action is disabled
     // this also checks to see if we have a GCS failsafe active, if we do, then must continue to process the logic for recovery from this state.
-    if (failsafe.last_heartbeat_ms == 0 || (!g.failsafe_gcs && g.failsafe_gcs == FS_GCS_DISABLED)) {
+    if (!g.failsafe_gcs && g.failsafe_gcs == FS_GCS_DISABLED) {
+        return;
+    }
+
+    const uint32_t gcs_last_seen_ms = gcs().sysid_myggcs_last_seen_time_ms();
+    if (gcs_last_seen_ms == 0) {
+        // we've never seen a GCS, so we don't failsafe if we stop seeing it
         return;
     }
 
     uint32_t tnow = AP_HAL::millis();
 
     // Check if we have gotten a GCS heartbeat recently (GCS sysid must match SYSID_MYGCS parameter)
-    if (tnow - failsafe.last_heartbeat_ms < FS_GCS_TIMEOUT_MS) {
+    if (tnow - gcs_last_seen_ms < FS_GCS_TIMEOUT_MS) {
         // Log event if we are recovering from previous gcs failsafe
         if (failsafe.gcs) {
             AP::logger().Write_Error(LogErrorSubsystem::FAILSAFE_GCS, LogErrorCode::FAILSAFE_RESOLVED);
@@ -345,14 +350,14 @@ void Sub::failsafe_gcs_check()
 
     // handle failsafe action
     if (g.failsafe_gcs == FS_GCS_DISARM) {
-        arming.disarm();
+        arming.disarm(AP_Arming::Method::GCSFAILSAFE);
     } else if (g.failsafe_gcs == FS_GCS_HOLD && motors.armed()) {
-        if (!set_mode(ALT_HOLD, MODE_REASON_GCS_FAILSAFE)) {
-            arming.disarm();
+        if (!set_mode(ALT_HOLD, ModeReason::GCS_FAILSAFE)) {
+            arming.disarm(AP_Arming::Method::GCS_FAILSAFE_HOLDFAILED);
         }
     } else if (g.failsafe_gcs == FS_GCS_SURFACE && motors.armed()) {
-        if (!set_mode(SURFACE, MODE_REASON_GCS_FAILSAFE)) {
-            arming.disarm();
+        if (!set_mode(SURFACE, ModeReason::GCS_FAILSAFE)) {
+            arming.disarm(AP_Arming::Method::GCS_FAILSAFE_SURFACEFAILED);
         }
     }
 }
@@ -411,7 +416,7 @@ void Sub::failsafe_crash_check()
 
     // disarm motors
     if (g.fs_crash_check == FS_CRASH_DISARM) {
-        arming.disarm();
+        arming.disarm(AP_Arming::Method::CRASH);
     }
 }
 
@@ -477,19 +482,19 @@ void Sub::failsafe_terrain_act()
 {
     switch (g.failsafe_terrain) {
     case FS_TERRAIN_HOLD:
-        if (!set_mode(POSHOLD, MODE_REASON_TERRAIN_FAILSAFE)) {
-            set_mode(ALT_HOLD, MODE_REASON_TERRAIN_FAILSAFE);
+        if (!set_mode(POSHOLD, ModeReason::TERRAIN_FAILSAFE)) {
+            set_mode(ALT_HOLD, ModeReason::TERRAIN_FAILSAFE);
         }
         AP_Notify::events.failsafe_mode_change = 1;
         break;
 
     case FS_TERRAIN_SURFACE:
-        set_mode(SURFACE, MODE_REASON_TERRAIN_FAILSAFE);
+        set_mode(SURFACE, ModeReason::TERRAIN_FAILSAFE);
         AP_Notify::events.failsafe_mode_change = 1;
         break;
 
     case FS_TERRAIN_DISARM:
     default:
-        arming.disarm();
+        arming.disarm(AP_Arming::Method::TERRAINFAILSAFE);
     }
 }

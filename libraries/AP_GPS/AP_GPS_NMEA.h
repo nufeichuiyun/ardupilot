@@ -67,11 +67,13 @@ public:
 
 private:
     /// Coding for the GPS sentences that the parser handles
-    enum _sentence_types {      //there are some more than 10 fields in some sentences , thus we have to increase these value.
+    enum _sentence_types : uint8_t {      //there are some more than 10 fields in some sentences , thus we have to increase these value.
         _GPS_SENTENCE_RMC = 32,
         _GPS_SENTENCE_GGA = 64,
         _GPS_SENTENCE_VTG = 96,
         _GPS_SENTENCE_HDT = 128,
+        _GPS_SENTENCE_PHD = 138, // extension for AllyStar GPS modules
+        _GPS_SENTENCE_THS = 160, // True heading with quality indicator, available on Trimble MB-Two
         _GPS_SENTENCE_OTHER = 0
     };
 
@@ -122,6 +124,7 @@ private:
     uint8_t _term_offset;                                       ///< character offset with the term being received
     uint16_t _sentence_length;
     bool _gps_data_good;                                        ///< set when the sentence indicates data is good
+    bool _sentence_done;                                        ///< set when a sentence has been fully decoded
 
     // The result of parsing terms within a message is stored temporarily until
     // the message is completely processed and the checksum validated.
@@ -138,10 +141,13 @@ private:
     uint8_t _new_satellite_count;                       ///< satellite count parsed from a term
     uint8_t _new_quality_indicator;                                     ///< GPS quality indicator parsed from a term
 
-    uint32_t _last_RMC_ms = 0;
-    uint32_t _last_GGA_ms = 0;
-    uint32_t _last_VTG_ms = 0;
-    uint32_t _last_HDT_ms = 0;
+    uint32_t _last_RMC_ms;
+    uint32_t _last_GGA_ms;
+    uint32_t _last_VTG_ms;
+    uint32_t _last_HDT_THS_ms;
+    uint32_t _last_PHD_12_ms;
+    uint32_t _last_PHD_26_ms;
+    uint32_t _last_fix_ms;
 
     /// @name	Init strings
     ///			In ::init, an attempt is made to configure the GPS
@@ -154,6 +160,25 @@ private:
     //@}
 
     static const char _initialisation_blob[];
+
+    /*
+      the $PHD message is an extension from AllyStar that gives
+      vertical velocity and more accuracy estimates. It is designed as
+      a mapping from ublox UBX protocol messages to NMEA. So class 1,
+      message 12 is a mapping to NMEA of the NAV-VELNED UBX message
+      and contains the same fields. Class 1 message 26 is called
+      "NAV-PVERR", but does not correspond to a UBX message
+
+      example:
+        $PHD,01,12,TIIITTITT,,245808000,0,0,0,0,0,10260304,0,0*27
+        $PHD,01,26,TTTTTTT,,245808000,877,864,1451,11,11,17*17
+     */
+    struct {
+        uint8_t msg_class;
+        uint8_t msg_id;
+        uint32_t itow;
+        int32_t fields[8];
+    } _phd;
 };
 
 #define AP_GPS_NMEA_HEMISPHERE_INIT_STRING \

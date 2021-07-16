@@ -6,12 +6,17 @@
   macros to allow code to build on multiple platforms more easily
  */
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX || HAL_WITH_EKF_DOUBLE
 /*
   allow double maths on Linux and SITL to avoid problems with system headers
  */
-#define ALLOW_DOUBLE_MATH_FUNCTIONS
+  #if !defined(ALLOW_DOUBLE_MATH_FUNCTIONS)
+    #define ALLOW_DOUBLE_MATH_FUNCTIONS
+  #endif
 #endif
+
+// we need to include math.h here for newer compilers (eg. g++ 7.3.1 for stm32)
+#include <math.h>
 
 #if !defined(ALLOW_DOUBLE_MATH_FUNCTIONS)
 /* give warnings if we use double precision maths functions without
@@ -37,7 +42,7 @@
 #define floor(x) DO_NOT_USE_DOUBLE_MATHS()
 #define round(x) DO_NOT_USE_DOUBLE_MATHS()
 #define fmax(x,y) DO_NOT_USE_DOUBLE_MATHS()
-#if !HAL_WITH_UAVCAN
+#if !HAL_NUM_CAN_IFACES
 // we should do log() and fabs() as well, but can't because of a conflict in uavcan
 #define log(x) DO_NOT_USE_DOUBLE_MATHS()
 #define fabs(x) DO_NOT_USE_DOUBLE_MATHS()

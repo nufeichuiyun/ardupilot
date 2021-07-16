@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export PATH=$HOME/.local/bin:/usr/local/bin:$HOME/prefix/bin:$HOME/APM/px4/gcc-arm-none-eabi-4_9-2015q3/bin:$PATH
+export PATH=$HOME/.local/bin:/usr/local/bin:$HOME/prefix/bin:$HOME/gcc/active/bin:$PATH
 export PYTHONUNBUFFERED=1
 
 cd $HOME/APM || exit 1
@@ -56,10 +56,10 @@ report() {
     d="$1"
     old="$2"
     new="$3"
-    cat <<EOF | mail -s 'build failed' drones-discuss@googlegroups.com
+    cat <<EOF | mail -s 'build failed' ardupilot.devel@google.com
 A build of $d failed at `date`
 
-You can view the build logs at http://autotest.ardupilot.org/
+You can view the build logs at https://autotest.ardupilot.org/
 
 A log of the commits since the last attempted build is below
 
@@ -69,7 +69,7 @@ EOF
 
 report_pull_failure() {
     d="$1"
-    git show origin/master | mail -s 'APM pull failed' drones-discuss@googlegroups.com
+    git show origin/master | mail -s 'APM pull failed' ardupilot.devel@google.com
     exit 1
 }
 
@@ -89,12 +89,6 @@ popd
 
 rsync -a APM/Tools/autotest/web-firmware/ buildlogs/binaries/
 
-echo "Updating pymavlink"
-pushd APM/modules/mavlink/pymavlink
-git show
-python setup.py build install --user
-popd
-
 echo "Updating MAVProxy"
 pushd MAVProxy
 git fetch origin
@@ -103,10 +97,18 @@ git show
 python setup.py build install --user
 popd
 
+echo "Updating pymavlink"
+pushd APM/modules/mavlink/pymavlink
+git show
+python setup.py build install --user
+popd
+
 githash=$(cd APM && git rev-parse HEAD)
 hdate=$(date +"%Y-%m-%d-%H:%m")
 
 (cd APM && Tools/scripts/build_parameters.sh)
+
+(cd APM && Tools/scripts/build_log_message_documentation.sh)
 
 (cd APM && Tools/scripts/build_docs.sh)
 
@@ -121,7 +123,7 @@ export BUILD_BINARIES_PATH=$HOME/build/tmp
 # exit on panic so we don't waste time waiting around
 export SITL_PANIC_EXIT=1
 
-timelimit 32000 APM/Tools/autotest/autotest.py --timeout=30000 > buildlogs/autotest-output.txt 2>&1
+timelimit 32000 APM/Tools/autotest/autotest.py --autotest-server --timeout=30000 > buildlogs/autotest-output.txt 2>&1
 
 mkdir -p "buildlogs/history/$hdate"
 

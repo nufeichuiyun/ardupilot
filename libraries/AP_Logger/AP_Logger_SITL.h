@@ -6,9 +6,9 @@
 
 #include <AP_HAL/AP_HAL.h>
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-
 #include "AP_Logger_Block.h"
+
+#if HAL_LOGGING_SITL_ENABLED
 
 class AP_Logger_SITL : public AP_Logger_Block {
 public:
@@ -22,6 +22,7 @@ private:
     void  BufferToPage(uint32_t PageAdr) override;
     void  PageToBuffer(uint32_t PageAdr) override;
     void  SectorErase(uint32_t SectorAdr) override;
+    void  Sector4kErase(uint32_t SectorAdr) override;
     void  StartErase() override;
     bool  InErase() override;
 
@@ -29,4 +30,4 @@ private:
     uint32_t erase_started_ms;
 };
 
-#endif // CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#endif // HAL_LOGGING_SITL_ENABLED

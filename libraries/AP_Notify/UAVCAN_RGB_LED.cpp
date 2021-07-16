@@ -17,12 +17,12 @@
 #include <AP_HAL/AP_HAL.h>
 #include <AP_HAL/system.h>
 
-#if HAL_WITH_UAVCAN
+#if HAL_CANMANAGER_ENABLED
 #include "UAVCAN_RGB_LED.h"
 
 #include <AP_UAVCAN/AP_UAVCAN.h>
 
-#include <AP_BoardConfig/AP_BoardConfig_CAN.h>
+#include <AP_CANManager/AP_CANManager.h>
 
 #define LED_OFF 0
 #define LED_FULL_BRIGHT 255
@@ -43,9 +43,17 @@ UAVCAN_RGB_LED::UAVCAN_RGB_LED(uint8_t led_index, uint8_t led_off,
 {
 }
 
-bool UAVCAN_RGB_LED::hw_init()
+bool UAVCAN_RGB_LED::init()
 {
-    return true;
+    const uint8_t can_num_drivers = AP::can().get_num_drivers();
+    for (uint8_t i = 0; i < can_num_drivers; i++) {
+        AP_UAVCAN *uavcan = AP_UAVCAN::get_uavcan(i);
+        if (uavcan != nullptr) {
+            return true;
+        }
+    }
+    // no UAVCAN drivers
+    return false;
 }
 
 

@@ -22,12 +22,11 @@ pincount = {
 
 # MCU parameters
 mcu = {
-    # location of MCU serial number
-    'UDID_START' : 0x1FFFF7E8,
-
     'RAM_MAP' : [
         (0x20000000, 20, 1), # main memory, DMA safe
-    ]
+    ],
+
+    'EXPECTED_CLOCK' : 72000000
 }
 
 ADC1_map = {

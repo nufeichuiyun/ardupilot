@@ -9,14 +9,27 @@
 
 #include <AP_InternalError/AP_InternalError.h>
 #include <GCS_MAVLink/GCS.h>
+#include <AP_BoardConfig/AP_BoardConfig.h>
 
 AP_Logger *AP_Logger::_singleton;
 
 extern const AP_HAL::HAL& hal;
 
 #ifndef HAL_LOGGING_FILE_BUFSIZE
+#if HAL_MEM_CLASS >= HAL_MEM_CLASS_1000
+#define HAL_LOGGING_FILE_BUFSIZE  200
+#elif HAL_MEM_CLASS >= HAL_MEM_CLASS_500
+#define HAL_LOGGING_FILE_BUFSIZE  80
+#elif HAL_MEM_CLASS >= HAL_MEM_CLASS_300
+#define HAL_LOGGING_FILE_BUFSIZE  50
+#else
 #define HAL_LOGGING_FILE_BUFSIZE  16
-#endif 
+#endif
+#endif
+
+#ifndef HAL_LOGGING_STACK_SIZE
+#define HAL_LOGGING_STACK_SIZE 1324
+#endif
 
 #ifndef HAL_LOGGING_MAV_BUFSIZE
 #define HAL_LOGGING_MAV_BUFSIZE  8
@@ -32,10 +45,14 @@ extern const AP_HAL::HAL& hal;
 #endif
 
 #ifndef HAL_LOGGING_BACKENDS_DEFAULT
-# ifdef HAL_LOGGING_DATAFLASH
+# if HAL_LOGGING_DATAFLASH_ENABLED
 #  define HAL_LOGGING_BACKENDS_DEFAULT Backend_Type::BLOCK
-# else
+# elif HAL_LOGGING_FILESYSTEM_ENABLED
 #  define HAL_LOGGING_BACKENDS_DEFAULT Backend_Type::FILESYSTEM
+# elif HAL_LOGGING_MAVLINK_ENABLED
+#  define HAL_LOGGING_BACKENDS_DEFAULT Backend_Type::MAVLINK
+# else
+#  define HAL_LOGGING_BACKENDS_DEFAULT 0
 # endif
 #endif
 
@@ -43,14 +60,13 @@ const AP_Param::GroupInfo AP_Logger::var_info[] = {
     // @Param: _BACKEND_TYPE
     // @DisplayName: AP_Logger Backend Storage type
     // @Description: Bitmap of what Logger backend types to enable. Block-based logging is available on SITL and boards with dataflash chips. Multiple backends can be selected.
-    // @Values: 0:None,1:File,2:MAVLink,3:File and MAVLink,4:Block,6:Block and MAVLink
     // @Bitmask: 0:File,1:MAVLink,2:Block
     // @User: Standard
     AP_GROUPINFO("_BACKEND_TYPE",  0, AP_Logger, _params.backend_types,       uint8_t(HAL_LOGGING_BACKENDS_DEFAULT)),
 
     // @Param: _FILE_BUFSIZE
-    // @DisplayName: Maximum AP_Logger File Backend buffer size (in kilobytes)
-    // @Description: The AP_Logger_File backend uses a buffer to store data before writing to the block device.  Raising this value may reduce "gaps" in your SD card logging.  This buffer size may be reduced depending on available memory.  PixHawk requires at least 4 kilobytes.  Maximum value available here is 64 kilobytes.
+    // @DisplayName: Maximum AP_Logger File and Block Backend buffer size (in kilobytes)
+    // @Description: The File and Block backends use a buffer to store data before writing to the block device.  Raising this value may reduce "gaps" in your SD card logging.  This buffer size may be reduced depending on available memory.  PixHawk requires at least 4 kilobytes.  Maximum value available here is 64 kilobytes.
     // @User: Standard
     AP_GROUPINFO("_FILE_BUFSIZE",  1, AP_Logger, _params.file_bufsize,       HAL_LOGGING_FILE_BUFSIZE),
 
@@ -70,17 +86,19 @@ const AP_Param::GroupInfo AP_Logger::var_info[] = {
 
     // @Param: _FILE_DSRMROT
     // @DisplayName: Stop logging to current file on disarm
-    // @Description: When set, the current log file is closed when the vehicle is disarmed.  If LOG_DISARMED is set then a fresh log will be opened.
+    // @Description: When set, the current log file is closed when the vehicle is disarmed.  If LOG_DISARMED is set then a fresh log will be opened. Applies to the File and Block logging backends.
     // @Values: 0:Disabled,1:Enabled
     // @User: Standard
     AP_GROUPINFO("_FILE_DSRMROT",  4, AP_Logger, _params.file_disarm_rot,       0),
 
+#if HAL_LOGGING_MAVLINK_ENABLED
     // @Param: _MAV_BUFSIZE
     // @DisplayName: Maximum AP_Logger MAVLink Backend buffer size
     // @Description: Maximum amount of memory to allocate to AP_Logger-over-mavlink
     // @User: Advanced
     // @Units: kB
     AP_GROUPINFO("_MAV_BUFSIZE",  5, AP_Logger, _params.mav_bufsize,       HAL_LOGGING_MAV_BUFSIZE),
+#endif
 
     // @Param: _FILE_TIMEOUT
     // @DisplayName: Timeout before giving up on file writes
@@ -88,7 +106,15 @@ const AP_Param::GroupInfo AP_Logger::var_info[] = {
     // @User: Standard
     // @Units: s
     AP_GROUPINFO("_FILE_TIMEOUT",  6, AP_Logger, _params.file_timeout,     HAL_LOGGING_FILE_TIMEOUT),
-    
+
+    // @Param: _FILE_MB_FREE
+    // @DisplayName: Old logs on the SD card will be deleted to maintain this amount of free space
+    // @Description: Set this such that the free space is larger than your largest typical flight log
+    // @Units: MB
+    // @Range: 10 1000
+    // @User: Standard
+    AP_GROUPINFO("_FILE_MB_FREE",  7, AP_Logger, _params.min_MB_free, 500),
+
     AP_GROUPEND
 };
 
@@ -107,9 +133,11 @@ AP_Logger::AP_Logger(const AP_Int32 &log_bitmask)
 
 void AP_Logger::Init(const struct LogStructure *structures, uint8_t num_types)
 {
-    gcs().send_text(MAV_SEVERITY_INFO, "Preparing log system");
+    // convert from 8 bit to 16 bit LOG_FILE_BUFSIZE
+    _params.file_bufsize.convert_parameter_width(AP_PARAM_INT8);
+
     if (hal.util->was_watchdog_armed()) {
-        gcs().send_text(MAV_SEVERITY_INFO, "Forcing logging for watchdog reset");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Forcing logging for watchdog reset");
         _params.log_disarmed.set(1);
     }
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
@@ -123,7 +151,7 @@ void AP_Logger::Init(const struct LogStructure *structures, uint8_t num_types)
     _num_types = num_types;
     _structures = structures;
 
-#if defined(HAL_BOARD_LOG_DIRECTORY) && HAVE_FILESYSTEM_SUPPORT
+#if HAL_LOGGING_FILESYSTEM_ENABLED
     if (_params.backend_types & uint8_t(Backend_Type::FILESYSTEM)) {
         LoggerMessageWriter_DFLogStart *message_writer =
             new LoggerMessageWriter_DFLogStart();
@@ -134,13 +162,57 @@ void AP_Logger::Init(const struct LogStructure *structures, uint8_t num_types)
         }
         if (backends[_next_backend] == nullptr) {
             hal.console->printf("Unable to open AP_Logger_File");
+            // note that message_writer is leaked here; costs several
+            // hundred bytes to fix for marginal utility
         } else {
             _next_backend++;
         }
     }
-#endif // HAVE_FILESYSTEM_SUPPORT
+#endif // HAL_LOGGING_FILESYSTEM_ENABLED
 
-#if LOGGER_MAVLINK_SUPPORT
+#if HAL_LOGGING_DATAFLASH_ENABLED
+    if (_params.backend_types & uint8_t(Backend_Type::BLOCK)) {
+        if (_next_backend == LOGGER_MAX_BACKENDS) {
+            AP_HAL::panic("Too many backends");
+            return;
+        }
+        LoggerMessageWriter_DFLogStart *message_writer =
+            new LoggerMessageWriter_DFLogStart();
+        if (message_writer != nullptr)  {
+            backends[_next_backend] = new AP_Logger_DataFlash(*this, message_writer);
+        }
+        if (backends[_next_backend] == nullptr) {
+            hal.console->printf("Unable to open AP_Logger_DataFlash");
+            // note that message_writer is leaked here; costs several
+            // hundred bytes to fix for marginal utility
+        } else {
+            _next_backend++;
+        }
+    }
+#endif
+
+#if HAL_LOGGING_SITL_ENABLED
+    if (_params.backend_types & uint8_t(Backend_Type::BLOCK)) {
+        if (_next_backend == LOGGER_MAX_BACKENDS) {
+            AP_HAL::panic("Too many backends");
+            return;
+        }
+        LoggerMessageWriter_DFLogStart *message_writer =
+            new LoggerMessageWriter_DFLogStart();
+        if (message_writer != nullptr)  {
+            backends[_next_backend] = new AP_Logger_SITL(*this, message_writer);
+        }
+        if (backends[_next_backend] == nullptr) {
+            hal.console->printf("Unable to open AP_Logger_SITL");
+            // note that message_writer is leaked here; costs several
+            // hundred bytes to fix for marginal utility
+        } else {
+            _next_backend++;
+        }
+    }
+#endif
+    // the "main" logging type needs to come before mavlink so that index 0 is correct
+#if HAL_LOGGING_MAVLINK_ENABLED
     if (_params.backend_types & uint8_t(Backend_Type::MAVLINK)) {
         if (_next_backend == LOGGER_MAX_BACKENDS) {
             AP_HAL::panic("Too many backends");
@@ -154,59 +226,21 @@ void AP_Logger::Init(const struct LogStructure *structures, uint8_t num_types)
         }
         if (backends[_next_backend] == nullptr) {
             hal.console->printf("Unable to open AP_Logger_MAVLink");
+            // note that message_writer is leaked here; costs several
+            // hundred bytes to fix for marginal utility
         } else {
             _next_backend++;
         }
     }
 #endif
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    if (_params.backend_types & uint8_t(Backend_Type::BLOCK)) {
-        if (_next_backend == LOGGER_MAX_BACKENDS) {
-            AP_HAL::panic("Too many backends");
-            return;
-        }
-        LoggerMessageWriter_DFLogStart *message_writer =
-            new LoggerMessageWriter_DFLogStart();
-        if (message_writer != nullptr)  {
-            backends[_next_backend] = new AP_Logger_SITL(*this, message_writer);
-        }
-        if (backends[_next_backend] == nullptr) {
-            hal.console->printf("Unable to open AP_Logger_SITL");
-        } else {
-            _next_backend++;
-        }
-    }
-#endif
-
-#ifdef HAL_LOGGING_DATAFLASH
-    if (_params.backend_types & uint8_t(Backend_Type::BLOCK)) {
-        if (_next_backend == LOGGER_MAX_BACKENDS) {
-            AP_HAL::panic("Too many backends");
-            return;
-        }
-        LoggerMessageWriter_DFLogStart *message_writer =
-            new LoggerMessageWriter_DFLogStart();
-        if (message_writer != nullptr)  {
-            backends[_next_backend] = new AP_Logger_DataFlash(*this, message_writer);
-        }
-        if (backends[_next_backend] == nullptr) {
-            hal.console->printf("Unable to open AP_Logger_DataFlash");
-        } else {
-            _next_backend++;
-        }
-    }
-#endif
-    
     for (uint8_t i=0; i<_next_backend; i++) {
         backends[i]->Init();
     }
 
-    Prep();
+    start_io_thread();
 
     EnableWrites(true);
-
-    gcs().send_text(MAV_SEVERITY_INFO, "Prepared log system");
 }
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
@@ -232,7 +266,7 @@ static uint8_t count_commas(const char *string)
 /// return a unit name given its ID
 const char* AP_Logger::unit_name(const uint8_t unit_id)
 {
-    for(uint8_t i=0; i<unit_id; i++) {
+    for (uint8_t i=0; i<unit_id; i++) {
         if (_units[i].ID == unit_id) {
             return _units[i].unit;
         }
@@ -243,7 +277,7 @@ const char* AP_Logger::unit_name(const uint8_t unit_id)
 /// return a multiplier value given its ID
 double AP_Logger::multiplier_name(const uint8_t multiplier_id)
 {
-    for(uint8_t i=0; i<multiplier_id; i++) {
+    for (uint8_t i=0; i<multiplier_id; i++) {
         if (_multipliers[i].ID == multiplier_id) {
             return _multipliers[i].multiplier;
         }
@@ -289,6 +323,48 @@ void AP_Logger::dump_structures(const struct LogStructure *logstructures, const 
 #endif
 }
 
+bool AP_Logger::labels_string_is_good(const char *labels) const
+{
+    bool passed = true;
+    if (strlen(labels) >= LS_LABELS_SIZE) {
+        Debug("Labels string too long (%u > %u)", unsigned(strlen(labels)), unsigned(LS_LABELS_SIZE));
+        passed = false;
+    }
+    // This goes through and slices labels up into substrings by
+    // changing commas to nulls - keeping references to each string in
+    // label_offsets.
+    char *label_offsets[LS_LABELS_SIZE];
+    uint8_t label_offsets_offset = 0;
+    char labels_copy[LS_LABELS_SIZE+1] {};
+    strncpy(labels_copy, labels, LS_LABELS_SIZE);
+    if (labels_copy[0] == ',') {
+        Debug("Leading comma in (%s)", labels);
+        passed = false;
+    }
+    label_offsets[label_offsets_offset++] = labels_copy;
+    const uint8_t len = strnlen(labels_copy, LS_LABELS_SIZE);
+    for (uint8_t i=0; i<len; i++) {
+        if (labels_copy[i] == ',') {
+            if (labels_copy[i+1] == '\0') {
+                Debug("Trailing comma in (%s)", labels);
+                passed = false;
+                continue;
+            }
+            labels_copy[i] = '\0';
+            label_offsets[label_offsets_offset++] = &labels_copy[i+1];
+        }
+    }
+    for (uint8_t i=0; i<label_offsets_offset-1; i++) {
+        for (uint8_t j=i+1; j<label_offsets_offset; j++) {
+            if (!strcmp(label_offsets[i], label_offsets[j])) {
+                Debug("Duplicate label (%s) in (%s)", label_offsets[i], labels);
+                passed = false;
+            }
+        }
+    }
+    return passed;
+}
+
 bool AP_Logger::validate_structure(const struct LogStructure *logstructure, const int16_t offset)
 {
     bool passed = true;
@@ -301,7 +377,7 @@ bool AP_Logger::validate_structure(const struct LogStructure *logstructure, cons
 #define CHECK_ENTRY(fieldname,fieldname_s,fieldlen)                     \
     do {                                                                \
         if (strnlen(logstructure->fieldname, fieldlen) > fieldlen-1) {  \
-            Debug("  Message " fieldname_s " not NULL-terminated or too long"); \
+            Debug("  Message %s." fieldname_s " not NULL-terminated or too long", logstructure->name); \
             passed = false;                                             \
         }                                                               \
     } while (false)
@@ -323,8 +399,12 @@ bool AP_Logger::validate_structure(const struct LogStructure *logstructure, cons
     uint8_t fieldcount = strlen(logstructure->format);
     uint8_t labelcount = count_commas(logstructure->labels)+1;
     if (fieldcount != labelcount) {
-        Debug("  fieldcount=%u does not match labelcount=%u",
-              fieldcount, labelcount);
+        Debug("  %s fieldcount=%u does not match labelcount=%u",
+              logstructure->name, fieldcount, labelcount);
+        passed = false;
+    }
+
+    if (!labels_string_is_good(logstructure->labels)) {
         passed = false;
     }
 
@@ -337,15 +417,15 @@ bool AP_Logger::validate_structure(const struct LogStructure *logstructure, cons
 
     // ensure we have units for each field:
     if (strlen(logstructure->units) != fieldcount) {
-        Debug("  fieldcount=%u does not match unitcount=%u",
-              (unsigned)fieldcount, (unsigned)strlen(logstructure->units));
+        Debug("  %s fieldcount=%u does not match unitcount=%u",
+              logstructure->name, (unsigned)fieldcount, (unsigned)strlen(logstructure->units));
         passed = false;
     }
 
     // ensure we have multipliers for each field
     if (strlen(logstructure->multipliers) != fieldcount) {
-        Debug("  fieldcount=%u does not match multipliercount=%u",
-              (unsigned)fieldcount, (unsigned)strlen(logstructure->multipliers));
+        Debug("  %s fieldcount=%u does not match multipliercount=%u",
+              logstructure->name, (unsigned)fieldcount, (unsigned)strlen(logstructure->multipliers));
         passed = false;
     }
 
@@ -454,8 +534,7 @@ void AP_Logger::validate_structures(const struct LogStructure *logstructures, co
     }
 
     if (!passed) {
-        Debug("Log structures are invalid");
-        abort();
+        AP_BoardConfig::config_error("See console: Log structures invalid");
     }
 }
 
@@ -510,6 +589,8 @@ void AP_Logger::Write_MessageF(const char *fmt, ...)
 
 void AP_Logger::backend_starting_new_log(const AP_Logger_Backend *backend)
 {
+    _log_start_count++;
+
     for (uint8_t i=0; i<_next_backend; i++) {
         if (backends[i] == backend) { // pointer comparison!
             // reset sent masks
@@ -538,6 +619,19 @@ bool AP_Logger::should_log(const uint32_t mask) const
         return false;
     }
     return true;
+}
+
+/*
+  return true if in log download which should prevent logging
+ */
+bool AP_Logger::in_log_download() const
+{
+    if (uint8_t(_params.backend_types) & uint8_t(Backend_Type::BLOCK)) {
+        // when we have a BLOCK backend then listing completely prevents logging
+        return transfer_activity != TransferActivity::IDLE;
+    }
+    // for other backends listing does not interfere with logging
+    return transfer_activity == TransferActivity::SENDING;
 }
 
 const struct UnitStructure *AP_Logger::unit(uint16_t num) const
@@ -582,10 +676,75 @@ void AP_Logger::set_vehicle_armed(const bool armed_state)
 
 }
 
+#if APM_BUILD_TYPE(APM_BUILD_Replay)
+/*
+  remember formats for replay. This allows WriteV() to work within
+  replay
+*/
+void AP_Logger::save_format_Replay(const void *pBuffer)
+{
+    if (((uint8_t *)pBuffer)[2] == LOG_FORMAT_MSG) {
+        struct log_Format *fmt = (struct log_Format *)pBuffer;
+        struct log_write_fmt *f = new log_write_fmt;
+        f->msg_type = fmt->type;
+        f->msg_len = fmt->length;
+        f->name = strndup(fmt->name, sizeof(fmt->name));
+        f->fmt = strndup(fmt->format, sizeof(fmt->format));
+        f->labels = strndup(fmt->labels, sizeof(fmt->labels));
+        f->next = log_write_fmts;
+        log_write_fmts = f;
+    }
+}
+#endif
+
 
 // start functions pass straight through to backend:
 void AP_Logger::WriteBlock(const void *pBuffer, uint16_t size) {
+#if APM_BUILD_TYPE(APM_BUILD_Replay)
+    save_format_Replay(pBuffer);
+#endif
     FOR_EACH_BACKEND(WriteBlock(pBuffer, size));
+}
+
+// only the first backend write need succeed for us to be successful
+bool AP_Logger::WriteBlock_first_succeed(const void *pBuffer, uint16_t size) 
+{
+    if (_next_backend == 0) {
+        return false;
+    }
+    
+    for (uint8_t i=1; i<_next_backend; i++) {
+        backends[i]->WriteBlock(pBuffer, size);
+    }
+
+    return backends[0]->WriteBlock(pBuffer, size);
+}
+
+// write a replay block. This differs from other as it returns false if a backend doesn't
+// have space for the msg
+bool AP_Logger::WriteReplayBlock(uint8_t msg_id, const void *pBuffer, uint16_t size) {
+    bool ret = true;
+    if (log_replay()) {
+        uint8_t buf[3+size];
+        buf[0] = HEAD_BYTE1;
+        buf[1] = HEAD_BYTE2;
+        buf[2] = msg_id;
+        memcpy(&buf[3], pBuffer, size);
+        for (uint8_t i=0; i<_next_backend; i++) {
+            if (!backends[i]->WritePrioritisedBlock(buf, sizeof(buf), true)) {
+                ret = false;
+            }
+        }
+    }
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+    // things will almost certainly go sour.  However, if we are not
+    // logging while disarmed then the EKF can be started and trying
+    // to log things even 'though the backends might be saying "no".
+    if (!ret && log_while_disarmed()) {
+        AP_HAL::panic("Failed to log replay block");
+    }
+#endif
+    return ret;
 }
 
 void AP_Logger::WriteCriticalBlock(const void *pBuffer, uint16_t size) {
@@ -608,10 +767,6 @@ bool AP_Logger::CardInserted(void) {
         }
     }
     return false;
-}
-
-void AP_Logger::Prep() {
-    FOR_EACH_BACKEND(Prep());
 }
 
 void AP_Logger::StopLogging()
@@ -664,7 +819,7 @@ void AP_Logger::handle_mavlink_msg(GCS_MAVLINK &link, const mavlink_message_t &m
 {
     switch (msg.msgid) {
     case MAVLINK_MSG_ID_REMOTE_LOG_BLOCK_STATUS:
-        FOR_EACH_BACKEND(remote_log_block_status_msg(link.get_chan(), msg));
+        FOR_EACH_BACKEND(remote_log_block_status_msg(link, msg));
         break;
     case MAVLINK_MSG_ID_LOG_REQUEST_LIST:
         FALLTHROUGH;
@@ -679,7 +834,9 @@ void AP_Logger::handle_mavlink_msg(GCS_MAVLINK &link, const mavlink_message_t &m
 }
 
 void AP_Logger::periodic_tasks() {
+#ifndef HAL_BUILD_AP_PERIPH
     handle_log_send();
+#endif
     FOR_EACH_BACKEND(periodic_tasks());
 }
 
@@ -701,7 +858,7 @@ void AP_Logger::Write_Message(const char *message)
     FOR_EACH_BACKEND(Write_Message(message));
 }
 
-void AP_Logger::Write_Mode(uint8_t mode, uint8_t reason)
+void AP_Logger::Write_Mode(uint8_t mode, const ModeReason reason)
 {
     FOR_EACH_BACKEND(Write_Mode(mode, reason));
 }
@@ -717,6 +874,7 @@ void AP_Logger::Write_Mission_Cmd(const AP_Mission &mission,
     FOR_EACH_BACKEND(Write_Mission_Cmd(mission, cmd));
 }
 
+#if HAL_RALLY_ENABLED
 void AP_Logger::Write_RallyPoint(uint8_t total,
                                  uint8_t sequence,
                                  const RallyLocation &rally_point)
@@ -727,6 +885,20 @@ void AP_Logger::Write_RallyPoint(uint8_t total,
 void AP_Logger::Write_Rally()
 {
     FOR_EACH_BACKEND(Write_Rally());
+}
+#endif
+
+// output a FMT message for each backend if not already done so
+void AP_Logger::Safe_Write_Emit_FMT(log_write_fmt *f)
+{
+    for (uint8_t i=0; i<_next_backend; i++) {
+        if (!(f->sent_mask & (1U<<i))) {
+            if (!backends[i]->Write_Emit_FMT(f->msg_type)) {
+                continue;
+            }
+            f->sent_mask |= (1U<<i);
+        }
+    }
 }
 
 uint32_t AP_Logger::num_dropped() const
@@ -779,11 +951,15 @@ void AP_Logger::WriteCritical(const char *name, const char *labels, const char *
 
 void AP_Logger::WriteV(const char *name, const char *labels, const char *units, const char *mults, const char *fmt, va_list arg_list, bool is_critical)
 {
-    struct log_write_fmt *f = msg_fmt_for_name(name, labels, units, mults, fmt);
+    // WriteV is not safe in replay as we can re-use IDs
+    const bool direct_comp = APM_BUILD_TYPE(APM_BUILD_Replay);
+    struct log_write_fmt *f = msg_fmt_for_name(name, labels, units, mults, fmt, direct_comp);
     if (f == nullptr) {
         // unable to map name to a messagetype; could be out of
         // msgtypes, could be out of slots, ...
-        AP::internalerror().error(AP_InternalError::error_t::logger_mapfailure);
+#if !APM_BUILD_TYPE(APM_BUILD_Replay)
+        INTERNAL_ERROR(AP_InternalError::error_t::logger_mapfailure);
+#endif
         return;
     }
 
@@ -801,9 +977,28 @@ void AP_Logger::WriteV(const char *name, const char *labels, const char *units, 
     }
 }
 
+/*
+  when we are doing replay logging we want to delay start of the EKF
+  until after the headers are out so that on replay all parameter
+  values are available
+ */
+bool AP_Logger::allow_start_ekf() const
+{
+    if (!log_replay() || !log_while_disarmed()) {
+        return true;
+    }
+
+    for (uint8_t i=0; i<_next_backend; i++) {
+        if (!backends[i]->allow_start_ekf()) {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-void AP_Logger::assert_same_fmt_for_name(const AP_Logger::log_write_fmt *f,
+bool AP_Logger::assert_same_fmt_for_name(const AP_Logger::log_write_fmt *f,
                                                const char *name,
                                                const char *labels,
                                                const char *units,
@@ -820,6 +1015,13 @@ void AP_Logger::assert_same_fmt_for_name(const AP_Logger::log_write_fmt *f,
         Debug("format labels differ (%s) vs (%s)", f->labels, labels);
         passed = false;
     }
+    if (!streq(f->fmt, fmt)) {
+        Debug("format fmt differ (%s) vs (%s)",
+              (f->fmt ? f->fmt : "nullptr"),
+              (fmt ? fmt : "nullptr"));
+        passed = false;
+    }
+#if !APM_BUILD_TYPE(APM_BUILD_Replay)
     if ((f->units != nullptr && units == nullptr) ||
         (f->units == nullptr && units != nullptr) ||
         (units !=nullptr && !streq(f->units, units))) {
@@ -836,31 +1038,49 @@ void AP_Logger::assert_same_fmt_for_name(const AP_Logger::log_write_fmt *f,
               (mults ? mults : "nullptr"));
         passed = false;
     }
-    if (!streq(f->fmt, fmt)) {
-        Debug("format fmt differ (%s) vs (%s)",
-              (f->fmt ? f->fmt : "nullptr"),
-              (fmt ? fmt : "nullptr"));
-        passed = false;
-    }
     if (!passed) {
-        Debug("Format definition must be consistent for every call of Write");
-        abort();
+        AP_BoardConfig::config_error("See console: Format definition must be consistent for every call of Write");
     }
+#endif
+    return passed;
 }
 #endif
 
-AP_Logger::log_write_fmt *AP_Logger::msg_fmt_for_name(const char *name, const char *labels, const char *units, const char *mults, const char *fmt)
+AP_Logger::log_write_fmt *AP_Logger::msg_fmt_for_name(const char *name, const char *labels, const char *units, const char *mults, const char *fmt, const bool direct_comp)
 {
+    WITH_SEMAPHORE(log_write_fmts_sem);
     struct log_write_fmt *f;
     for (f = log_write_fmts; f; f=f->next) {
-        if (f->name == name) { // ptr comparison
-            // already have an ID for this name:
+        if (!direct_comp) {
+            if (f->name == name) { // ptr comparison
+                // already have an ID for this name:
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-            assert_same_fmt_for_name(f, name, labels, units, mults, fmt);
+                if (!assert_same_fmt_for_name(f, name, labels, units, mults, fmt)) {
+                    return nullptr;
+                }
 #endif
-            return f;
+                return f;
+            }
+        } else {
+            // direct comparison used from scripting where pointer is not maintained
+            if (strcmp(f->name,name) == 0) {
+                // already have an ID for this name:
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+                if (!assert_same_fmt_for_name(f, name, labels, units, mults, fmt)) {
+                    return nullptr;
+                }
+#endif
+                return f;
+            }
         }
     }
+
+#if APM_BUILD_TYPE(APM_BUILD_Replay)
+    // don't allow for new msg types during replay. We will be able to
+    // support these eventually, but for now they cause corruption
+    return nullptr;
+#endif
+
     f = (struct log_write_fmt *)calloc(1, sizeof(*f));
     if (f == nullptr) {
         // out of memory
@@ -920,15 +1140,14 @@ AP_Logger::log_write_fmt *AP_Logger::msg_fmt_for_name(const char *name, const ch
         memset((char*)ls_multipliers, '?', MIN(sizeof(ls_format), strlen(f->fmt)));
     }
     if (!validate_structure(&ls, (int16_t)-1)) {
-        Debug("Log structure invalid");
-        abort();
+        AP_BoardConfig::config_error("See console: Log structure invalid");
     }
 #endif
 
     return f;
 }
 
-const struct LogStructure *AP_Logger::structure_for_msg_type(const uint8_t msg_type)
+const struct LogStructure *AP_Logger::structure_for_msg_type(const uint8_t msg_type) const
 {
     for (uint16_t i=0; i<_num_types;i++) {
         const struct LogStructure *s = structure(i);
@@ -994,7 +1213,7 @@ bool AP_Logger::fill_log_write_logstructure(struct LogStructure &logstruct, cons
     // find log structure information corresponding to msg_type:
     struct log_write_fmt *f;
     for (f = log_write_fmts; f; f=f->next) {
-        if(f->msg_type == msg_type) {
+        if (f->msg_type == msg_type) {
             break;
         }
     }
@@ -1068,78 +1287,56 @@ int16_t AP_Logger::Write_calc_msg_len(const char *fmt) const
     return len;
 }
 
+// thread for processing IO - in general IO involves a long blocking DMA write to an SPI device
+// and the thread will sleep while this completes preventing other tasks from running, it therefore
+// is necessary to run the IO in it's own thread
+void AP_Logger::io_thread(void)
+{
+    uint32_t last_run_us = AP_HAL::micros();
+
+    while (true) {
+        uint32_t now = AP_HAL::micros();
+
+        uint32_t delay = 250U; // always have some delay
+        if (now - last_run_us < 1000) {
+            delay = MAX(1000 - (now - last_run_us), delay);
+        }
+        hal.scheduler->delay_microseconds(delay);
+
+        last_run_us = AP_HAL::micros();
+
+        FOR_EACH_BACKEND(io_timer());
+    }
+}
+
+// start the update thread
+void AP_Logger::start_io_thread(void)
+{
+    WITH_SEMAPHORE(_log_send_sem);
+
+    if (_io_thread_started) {
+        return;
+    }
+
+    if (!hal.scheduler->thread_create(FUNCTOR_BIND_MEMBER(&AP_Logger::io_thread, void), "log_io", HAL_LOGGING_STACK_SIZE, AP_HAL::Scheduler::PRIORITY_IO, 1)) {
+        AP_HAL::panic("Failed to start Logger IO thread");
+    }
+
+    _io_thread_started = true;
+    return;
+}
+
 /* End of Write support */
 
 #undef FOR_EACH_BACKEND
 
-// Write information about a series of IMU readings to log:
-bool AP_Logger::Write_ISBH(const uint16_t seqno,
-                                     const AP_InertialSensor::IMU_SENSOR_TYPE sensor_type,
-                                     const uint8_t sensor_instance,
-                                     const uint16_t mult,
-                                     const uint16_t sample_count,
-                                     const uint64_t sample_us,
-                                     const float sample_rate_hz)
-{
-    if (_next_backend == 0) {
-        return false;
-    }
-    const struct log_ISBH pkt{
-        LOG_PACKET_HEADER_INIT(LOG_ISBH_MSG),
-        time_us        : AP_HAL::micros64(),
-        seqno          : seqno,
-        sensor_type    : (uint8_t)sensor_type,
-        instance       : sensor_instance,
-        multiplier     : mult,
-        sample_count   : sample_count,
-        sample_us      : sample_us,
-        sample_rate_hz : sample_rate_hz,
-    };
-
-    // only the first backend need succeed for us to be successful
-    for (uint8_t i=1; i<_next_backend; i++) {
-        backends[i]->WriteBlock(&pkt, sizeof(pkt));
-    }
-
-    return backends[0]->WriteBlock(&pkt, sizeof(pkt));
-}
-
-
-// Write a series of IMU readings to log:
-bool AP_Logger::Write_ISBD(const uint16_t isb_seqno,
-                                     const uint16_t seqno,
-                                     const int16_t x[32],
-                                     const int16_t y[32],
-                                     const int16_t z[32])
-{
-    if (_next_backend == 0) {
-        return false;
-    }
-    struct log_ISBD pkt = {
-        LOG_PACKET_HEADER_INIT(LOG_ISBD_MSG),
-        time_us    : AP_HAL::micros64(),
-        isb_seqno  : isb_seqno,
-        seqno      : seqno
-    };
-    memcpy(pkt.x, x, sizeof(pkt.x));
-    memcpy(pkt.y, y, sizeof(pkt.y));
-    memcpy(pkt.z, z, sizeof(pkt.z));
-
-    // only the first backend need succeed for us to be successful
-    for (uint8_t i=1; i<_next_backend; i++) {
-        backends[i]->WriteBlock(&pkt, sizeof(pkt));
-    }
-
-    return backends[0]->WriteBlock(&pkt, sizeof(pkt));
-}
-
 // Wrote an event packet
-void AP_Logger::Write_Event(Log_Event id)
+void AP_Logger::Write_Event(LogEvent id)
 {
     const struct log_Event pkt{
         LOG_PACKET_HEADER_INIT(LOG_EVENT_MSG),
         time_us  : AP_HAL::micros64(),
-        id       : id
+        id       : (uint8_t)id
     };
     WriteCriticalBlock(&pkt, sizeof(pkt));
 }

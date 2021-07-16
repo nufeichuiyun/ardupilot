@@ -2,6 +2,7 @@
 
 #include <AP_Common/AP_Common.h>
 #include <AP_HAL/AP_HAL.h>
+#if HAL_INS_ENABLED
 #include <AP_HAL/I2CDevice.h>
 #include <AP_HAL/SPIDevice.h>
 #include <AP_Math/AP_Math.h>
@@ -9,11 +10,11 @@
 #include <AP_Vehicle/AP_Vehicle.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_AHRS/AP_AHRS.h>
+#include <AP_ExternalAHRS/AP_ExternalAHRS.h>
 
 #include "AP_InertialSensor.h"
 #include "AP_InertialSensor_BMI160.h"
 #include "AP_InertialSensor_Backend.h"
-#include "AP_InertialSensor_HIL.h"
 #include "AP_InertialSensor_L3G4200D.h"
 #include "AP_InertialSensor_LSM9DS0.h"
 #include "AP_InertialSensor_LSM9DS1.h"
@@ -23,6 +24,9 @@
 #include "AP_InertialSensor_BMI055.h"
 #include "AP_InertialSensor_BMI088.h"
 #include "AP_InertialSensor_Invensensev2.h"
+#include "AP_InertialSensor_ADIS1647x.h"
+#include "AP_InertialSensor_ExternalAHRS.h"
+#include "AP_InertialSensor_Invensensev3.h"
 
 /* Define INS_TIMING_DEBUG to track down scheduling issues with the main loop.
  * Output is on the debug console. */
@@ -34,16 +38,18 @@
 #endif
 
 #ifndef HAL_DEFAULT_INS_FAST_SAMPLE
-#define HAL_DEFAULT_INS_FAST_SAMPLE 0
+#define HAL_DEFAULT_INS_FAST_SAMPLE 1
 #endif
 
 extern const AP_HAL::HAL& hal;
+
+
 
 #if APM_BUILD_TYPE(APM_BUILD_ArduCopter)
 #define DEFAULT_GYRO_FILTER  20
 #define DEFAULT_ACCEL_FILTER 20
 #define DEFAULT_STILL_THRESH 2.5f
-#elif APM_BUILD_TYPE(APM_BUILD_APMrover2)
+#elif APM_BUILD_TYPE(APM_BUILD_Rover)
 #define DEFAULT_GYRO_FILTER  4
 #define DEFAULT_ACCEL_FILTER 10
 #define DEFAULT_STILL_THRESH 0.1f
@@ -53,7 +59,11 @@ extern const AP_HAL::HAL& hal;
 #define DEFAULT_STILL_THRESH 0.1f
 #endif
 
-#define SAMPLE_UNIT 1
+#if defined(STM32H7) || defined(STM32F7)
+#define MPU_FIFO_FASTSAMPLE_DEFAULT 1
+#else
+#define MPU_FIFO_FASTSAMPLE_DEFAULT 0
+#endif
 
 #define GYRO_INIT_MAX_DIFF_DPS 0.1f
 
@@ -81,18 +91,21 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Description: Gyro sensor offsets of X axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: GYROFFS_Y
     // @DisplayName: Gyro offsets of Y axis
     // @Description: Gyro sensor offsets of Y axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: GYROFFS_Z
     // @DisplayName: Gyro offsets of Z axis
     // @Description: Gyro sensor offsets of Z axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
     AP_GROUPINFO("GYROFFS",     3, AP_InertialSensor, _gyro_offset[0],  0),
 
     // @Param: GYR2OFFS_X
@@ -100,56 +113,71 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Description: Gyro2 sensor offsets of X axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: GYR2OFFS_Y
     // @DisplayName: Gyro2 offsets of Y axis
     // @Description: Gyro2 sensor offsets of Y axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: GYR2OFFS_Z
     // @DisplayName: Gyro2 offsets of Z axis
     // @Description: Gyro2 sensor offsets of Z axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
+
+#if INS_MAX_INSTANCES > 1
     AP_GROUPINFO("GYR2OFFS",    7, AP_InertialSensor, _gyro_offset[1],   0),
+#endif
 
     // @Param: GYR3OFFS_X
     // @DisplayName: Gyro3 offsets of X axis
     // @Description: Gyro3 sensor offsets of X axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: GYR3OFFS_Y
     // @DisplayName: Gyro3 offsets of Y axis
     // @Description: Gyro3 sensor offsets of Y axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: GYR3OFFS_Z
     // @DisplayName: Gyro3 offsets of Z axis
     // @Description: Gyro3 sensor offsets of Z axis. This is setup on each boot during gyro calibrations
     // @Units: rad/s
     // @User: Advanced
+    // @Calibration: 1
+
+#if INS_MAX_INSTANCES > 2
     AP_GROUPINFO("GYR3OFFS",   10, AP_InertialSensor, _gyro_offset[2],   0),
+#endif
 
     // @Param: ACCSCAL_X
     // @DisplayName: Accelerometer scaling of X axis
     // @Description: Accelerometer scaling of X axis.  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACCSCAL_Y
     // @DisplayName: Accelerometer scaling of Y axis
     // @Description: Accelerometer scaling of Y axis  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACCSCAL_Z
     // @DisplayName: Accelerometer scaling of Z axis
     // @Description: Accelerometer scaling of Z axis  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
     AP_GROUPINFO("ACCSCAL",     12, AP_InertialSensor, _accel_scale[0],  0),
 
     // @Param: ACCOFFS_X
@@ -158,6 +186,7 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACCOFFS_Y
     // @DisplayName: Accelerometer offsets of Y axis
@@ -165,6 +194,7 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACCOFFS_Z
     // @DisplayName: Accelerometer offsets of Z axis
@@ -172,6 +202,7 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
     AP_GROUPINFO("ACCOFFS",     13, AP_InertialSensor, _accel_offset[0], 0),
 
     // @Param: ACC2SCAL_X
@@ -179,19 +210,25 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Description: Accelerometer2 scaling of X axis.  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACC2SCAL_Y
     // @DisplayName: Accelerometer2 scaling of Y axis
     // @Description: Accelerometer2 scaling of Y axis  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACC2SCAL_Z
     // @DisplayName: Accelerometer2 scaling of Z axis
     // @Description: Accelerometer2 scaling of Z axis  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
+
+#if INS_MAX_INSTANCES > 1
     AP_GROUPINFO("ACC2SCAL",    14, AP_InertialSensor, _accel_scale[1],   0),
+#endif
 
     // @Param: ACC2OFFS_X
     // @DisplayName: Accelerometer2 offsets of X axis
@@ -199,6 +236,7 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACC2OFFS_Y
     // @DisplayName: Accelerometer2 offsets of Y axis
@@ -206,6 +244,7 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACC2OFFS_Z
     // @DisplayName: Accelerometer2 offsets of Z axis
@@ -213,26 +252,36 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
+
+#if INS_MAX_INSTANCES > 1
     AP_GROUPINFO("ACC2OFFS",    15, AP_InertialSensor, _accel_offset[1],  0),
+#endif
 
     // @Param: ACC3SCAL_X
     // @DisplayName: Accelerometer3 scaling of X axis
     // @Description: Accelerometer3 scaling of X axis.  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACC3SCAL_Y
     // @DisplayName: Accelerometer3 scaling of Y axis
     // @Description: Accelerometer3 scaling of Y axis  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACC3SCAL_Z
     // @DisplayName: Accelerometer3 scaling of Z axis
     // @Description: Accelerometer3 scaling of Z axis  Calculated during acceleration calibration routine
     // @Range: 0.8 1.2
     // @User: Advanced
+    // @Calibration: 1
+
+#if INS_MAX_INSTANCES > 2
     AP_GROUPINFO("ACC3SCAL",    16, AP_InertialSensor, _accel_scale[2],   0),
+#endif
 
     // @Param: ACC3OFFS_X
     // @DisplayName: Accelerometer3 offsets of X axis
@@ -240,6 +289,7 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACC3OFFS_Y
     // @DisplayName: Accelerometer3 offsets of Y axis
@@ -247,6 +297,7 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
 
     // @Param: ACC3OFFS_Z
     // @DisplayName: Accelerometer3 offsets of Z axis
@@ -254,7 +305,11 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Units: m/s/s
     // @Range: -3.5 3.5
     // @User: Advanced
+    // @Calibration: 1
+
+#if INS_MAX_INSTANCES > 2
     AP_GROUPINFO("ACC3OFFS",    17, AP_InertialSensor, _accel_offset[2],  0),
+#endif
 
     // @Param: GYRO_FILTER
     // @DisplayName: Gyro filter cutoff frequency
@@ -284,14 +339,20 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Description: Use second IMU for attitude, velocity and position estimates
     // @Values: 0:Disabled,1:Enabled
     // @User: Advanced
+
+#if INS_MAX_INSTANCES > 1
     AP_GROUPINFO("USE2", 21, AP_InertialSensor, _use[1],  1),
+#endif
 
     // @Param: USE3
     // @DisplayName: Use third IMU for attitude, velocity and position estimates
     // @Description: Use third IMU for attitude, velocity and position estimates
     // @Values: 0:Disabled,1:Enabled
     // @User: Advanced
+
+#if INS_MAX_INSTANCES > 2
     AP_GROUPINFO("USE3", 22, AP_InertialSensor, _use[2],  1),
+#endif
 
     // @Param: STILL_THRESH
     // @DisplayName: Stillness threshold for detecting if we are moving
@@ -325,21 +386,24 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @DisplayName: IMU accelerometer X position
     // @Description: X position of the first IMU Accelerometer in body frame. Positive X is forward of the origin. Attention: The IMU should be located as close to the vehicle c.g. as practical so that the value of this parameter is minimised. Failure to do so can result in noisy navigation velocity measurements due to vibration and IMU gyro noise. If the IMU cannot be moved and velocity noise is a problem, a location closer to the IMU can be used as the body frame origin.
     // @Units: m
-    // @Range: -10 10
+    // @Range: -5 5
+    // @Increment: 0.01
     // @User: Advanced
 
     // @Param: POS1_Y
     // @DisplayName: IMU accelerometer Y position
     // @Description: Y position of the first IMU accelerometer in body frame. Positive Y is to the right of the origin. Attention: The IMU should be located as close to the vehicle c.g. as practical so that the value of this parameter is minimised. Failure to do so can result in noisy navigation velocity measurements due to vibration and IMU gyro noise. If the IMU cannot be moved and velocity noise is a problem, a location closer to the IMU can be used as the body frame origin.
     // @Units: m
-    // @Range: -10 10
+    // @Range: -5 5
+    // @Increment: 0.01
     // @User: Advanced
 
     // @Param: POS1_Z
     // @DisplayName: IMU accelerometer Z position
     // @Description: Z position of the first IMU accelerometer in body frame. Positive Z is down from the origin. Attention: The IMU should be located as close to the vehicle c.g. as practical so that the value of this parameter is minimised. Failure to do so can result in noisy navigation velocity measurements due to vibration and IMU gyro noise. If the IMU cannot be moved and velocity noise is a problem, a location closer to the IMU can be used as the body frame origin.
     // @Units: m
-    // @Range: -10 10
+    // @Range: -5 5
+    // @Increment: 0.01
     // @User: Advanced
     AP_GROUPINFO("POS1", 27, AP_InertialSensor, _accel_pos[0], 0.0f),
 
@@ -347,23 +411,29 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @DisplayName: IMU accelerometer X position
     // @Description: X position of the second IMU accelerometer in body frame. Positive X is forward of the origin. Attention: The IMU should be located as close to the vehicle c.g. as practical so that the value of this parameter is minimised. Failure to do so can result in noisy navigation velocity measurements due to vibration and IMU gyro noise. If the IMU cannot be moved and velocity noise is a problem, a location closer to the IMU can be used as the body frame origin.
     // @Units: m
-    // @Range: -10 10
+    // @Range: -5 5
+    // @Increment: 0.01
     // @User: Advanced
 
     // @Param: POS2_Y
     // @DisplayName: IMU accelerometer Y position
     // @Description: Y position of the second IMU accelerometer in body frame. Positive Y is to the right of the origin. Attention: The IMU should be located as close to the vehicle c.g. as practical so that the value of this parameter is minimised. Failure to do so can result in noisy navigation velocity measurements due to vibration and IMU gyro noise. If the IMU cannot be moved and velocity noise is a problem, a location closer to the IMU can be used as the body frame origin.
     // @Units: m
-    // @Range: -10 10
+    // @Range: -5 5
+    // @Increment: 0.01
     // @User: Advanced
 
     // @Param: POS2_Z
     // @DisplayName: IMU accelerometer Z position
     // @Description: Z position of the second IMU accelerometer in body frame. Positive Z is down from the origin. Attention: The IMU should be located as close to the vehicle c.g. as practical so that the value of this parameter is minimised. Failure to do so can result in noisy navigation velocity measurements due to vibration and IMU gyro noise. If the IMU cannot be moved and velocity noise is a problem, a location closer to the IMU can be used as the body frame origin.
     // @Units: m
-    // @Range: -10 10
+    // @Range: -5 5
+    // @Increment: 0.01
     // @User: Advanced
+
+#if INS_MAX_INSTANCES > 1
     AP_GROUPINFO("POS2", 28, AP_InertialSensor, _accel_pos[1], 0.0f),
+#endif
 
     // @Param: POS3_X
     // @DisplayName: IMU accelerometer X position
@@ -376,16 +446,21 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @DisplayName: IMU accelerometer Y position
     // @Description: Y position of the third IMU accelerometer in body frame. Positive Y is to the right of the origin. Attention: The IMU should be located as close to the vehicle c.g. as practical so that the value of this parameter is minimised. Failure to do so can result in noisy navigation velocity measurements due to vibration and IMU gyro noise. If the IMU cannot be moved and velocity noise is a problem, a location closer to the IMU can be used as the body frame origin.
     // @Units: m
-    // @Range: -10 10
+    // @Range: -5 5
+    // @Increment: 0.01
     // @User: Advanced
 
     // @Param: POS3_Z
     // @DisplayName: IMU accelerometer Z position
     // @Description: Z position of the third IMU accelerometer in body frame. Positive Z is down from the origin. Attention: The IMU should be located as close to the vehicle c.g. as practical so that the value of this parameter is minimised. Failure to do so can result in noisy navigation velocity measurements due to vibration and IMU gyro noise. If the IMU cannot be moved and velocity noise is a problem, a location closer to the IMU can be used as the body frame origin.
     // @Units: m
-    // @Range: -10 10
+    // @Range: -5 5
+    // @Increment: 0.01
     // @User: Advanced
+
+#if INS_MAX_INSTANCES > 2
     AP_GROUPINFO("POS3", 29, AP_InertialSensor, _accel_pos[2], 0.0f),
+#endif
 
     // @Param: GYR_ID
     // @DisplayName: Gyro ID
@@ -399,14 +474,20 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Description: Gyro2 sensor ID, taking into account its type, bus and instance
     // @ReadOnly: True
     // @User: Advanced
+
+#if INS_MAX_INSTANCES > 1
     AP_GROUPINFO("GYR2_ID", 31, AP_InertialSensor, _gyro_id[1], 0),
+#endif
 
     // @Param: GYR3_ID
     // @DisplayName: Gyro3 ID
     // @Description: Gyro3 sensor ID, taking into account its type, bus and instance
     // @ReadOnly: True
     // @User: Advanced
+
+#if INS_MAX_INSTANCES > 2
     AP_GROUPINFO("GYR3_ID", 32, AP_InertialSensor, _gyro_id[2], 0),
+#endif
 
     // @Param: ACC_ID
     // @DisplayName: Accelerometer ID
@@ -420,20 +501,25 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @Description: Accelerometer2 sensor ID, taking into account its type, bus and instance
     // @ReadOnly: True
     // @User: Advanced
+
+#if INS_MAX_INSTANCES > 1
     AP_GROUPINFO("ACC2_ID", 34, AP_InertialSensor, _accel_id[1], 0),
+#endif
 
     // @Param: ACC3_ID
     // @DisplayName: Accelerometer3 ID
     // @Description: Accelerometer3 sensor ID, taking into account its type, bus and instance
     // @ReadOnly: True
     // @User: Advanced
+
+#if INS_MAX_INSTANCES > 2
     AP_GROUPINFO("ACC3_ID", 35, AP_InertialSensor, _accel_id[2], 0),
+#endif
 
     // @Param: FAST_SAMPLE
     // @DisplayName: Fast sampling mask
     // @Description: Mask of IMUs to enable fast sampling on, if available
     // @User: Advanced
-    // @Values: 1:FirstIMUOnly,3:FirstAndSecondIMU
     // @Bitmask: 0:FirstIMU,1:SecondIMU,2:ThirdIMU
     AP_GROUPINFO("FAST_SAMPLE",  36, AP_InertialSensor, _fast_sampling_mask,   HAL_DEFAULT_INS_FAST_SAMPLE),
 
@@ -449,13 +535,99 @@ const AP_Param::GroupInfo AP_InertialSensor::var_info[] = {
     // @DisplayName: IMU enable mask
     // @Description: Bitmask of IMUs to enable. It can be used to prevent startup of specific detected IMUs
     // @User: Advanced
-    // @Values: 1:FirstIMUOnly,3:FirstAndSecondIMU,7:FirstSecondAndThirdIMU,127:AllIMUs
     // @Bitmask: 0:FirstIMU,1:SecondIMU,2:ThirdIMU
     AP_GROUPINFO("ENABLE_MASK",  40, AP_InertialSensor, _enable_mask, 0x7F),
 
     // @Group: HNTCH_
     // @Path: ../Filter/HarmonicNotchFilter.cpp
     AP_SUBGROUPINFO(_harmonic_notch_filter, "HNTCH_",  41, AP_InertialSensor, HarmonicNotchFilterParams),
+
+    // @Param: GYRO_RATE
+    // @DisplayName: Gyro rate for IMUs with Fast Sampling enabled
+    // @Description: Gyro rate for IMUs with fast sampling enabled. The gyro rate is the sample rate at which the IMU filters operate and needs to be at least double the maximum filter frequency. If the sensor does not support the selected rate the next highest supported rate will be used. For IMUs which do not support fast sampling this setting is ignored and the default gyro rate of 1Khz is used.
+    // @User: Advanced
+    // @Values: 0:1kHz,1:2kHz,2:4kHz,3:8kHz
+    // @RebootRequired: True
+    AP_GROUPINFO("GYRO_RATE",  42, AP_InertialSensor, _fast_sampling_rate, MPU_FIFO_FASTSAMPLE_DEFAULT),
+
+
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+    // @Group: TCAL1_
+    // @Path: AP_InertialSensor_tempcal.cpp
+    AP_SUBGROUPINFO(tcal[0], "TCAL1_", 43, AP_InertialSensor, AP_InertialSensor::TCal),
+
+#if INS_MAX_INSTANCES > 1
+    // @Group: TCAL2_
+    // @Path: AP_InertialSensor_tempcal.cpp
+    AP_SUBGROUPINFO(tcal[1], "TCAL2_", 44, AP_InertialSensor, AP_InertialSensor::TCal),
+#endif
+
+#if INS_MAX_INSTANCES > 2
+    // @Group: TCAL3_
+    // @Path: AP_InertialSensor_tempcal.cpp
+    AP_SUBGROUPINFO(tcal[2], "TCAL3_", 45, AP_InertialSensor, AP_InertialSensor::TCal),
+#endif
+
+    // @Param: ACC1_CALTEMP
+    // @DisplayName: Calibration temperature for 1st accelerometer
+    // @Description: Temperature that the 1st accelerometer was calibrated at
+    // @User: Advanced
+    // @Units: degC
+    // @Calibration: 1
+    AP_GROUPINFO("ACC1_CALTEMP", 46, AP_InertialSensor, caltemp_accel[0], -300),
+
+    // @Param: GYR1_CALTEMP
+    // @DisplayName: Calibration temperature for 1st gyroscope
+    // @Description: Temperature that the 1st gyroscope was calibrated at
+    // @User: Advanced
+    // @Units: degC
+    // @Calibration: 1
+    AP_GROUPINFO("GYR1_CALTEMP", 47, AP_InertialSensor, caltemp_gyro[0], -300),
+
+#if INS_MAX_INSTANCES > 1
+    // @Param: ACC2_CALTEMP
+    // @DisplayName: Calibration temperature for 2nd accelerometer
+    // @Description: Temperature that the 2nd accelerometer was calibrated at
+    // @User: Advanced
+    // @Units: degC
+    // @Calibration: 1
+    AP_GROUPINFO("ACC2_CALTEMP", 48, AP_InertialSensor, caltemp_accel[1], -300),
+
+    // @Param: GYR2_CALTEMP
+    // @DisplayName: Calibration temperature for 2nd gyroscope
+    // @Description: Temperature that the 2nd gyroscope was calibrated at
+    // @User: Advanced
+    // @Units: degC
+    // @Calibration: 1
+    AP_GROUPINFO("GYR2_CALTEMP", 49, AP_InertialSensor, caltemp_gyro[1], -300),
+#endif
+
+#if INS_MAX_INSTANCES > 2
+    // @Param: ACC3_CALTEMP
+    // @DisplayName: Calibration temperature for 3rd accelerometer
+    // @Description: Temperature that the 3rd accelerometer was calibrated at
+    // @User: Advanced
+    // @Units: degC
+    // @Calibration: 1
+    AP_GROUPINFO("ACC3_CALTEMP", 50, AP_InertialSensor, caltemp_accel[2], -300),
+
+    // @Param: GYR3_CALTEMP
+    // @DisplayName: Calibration temperature for 3rd gyroscope
+    // @Description: Temperature that the 3rd gyroscope was calibrated at
+    // @User: Advanced
+    // @Units: degC
+    // @Calibration: 1
+    AP_GROUPINFO("GYR3_CALTEMP", 51, AP_InertialSensor, caltemp_gyro[2], -300),
+#endif
+
+    // @Param: TCAL_OPTIONS
+    // @DisplayName: Options for temperature calibration
+    // @Description: This enables optional temperature calibration features. Setting PersistParams will save the accelerometer and temperature calibration parameters in the bootloader sector on the next update of the bootloader.
+    // @Bitmask: 0:PersistParams
+    // @User: Advanced
+    AP_GROUPINFO("TCAL_OPTIONS", 52, AP_InertialSensor, tcal_options, 0),
+    
+#endif // HAL_INS_TEMPERATURE_CAL_ENABLE
 
     /*
       NOTE: parameter indexes have gaps above. When adding new
@@ -484,8 +656,9 @@ AP_InertialSensor::AP_InertialSensor() :
         _accel_vibe_floor_filter[i].set_cutoff_frequency(AP_INERTIAL_SENSOR_ACCEL_VIBE_FLOOR_FILT_HZ);
         _accel_vibe_filter[i].set_cutoff_frequency(AP_INERTIAL_SENSOR_ACCEL_VIBE_FILT_HZ);
     }
-
+#if HAL_INS_ACCELCAL_ENABLED
     AP_AccelCal::register_client(this);
+#endif
 }
 
 /*
@@ -502,11 +675,11 @@ AP_InertialSensor *AP_InertialSensor::get_singleton()
 /*
   register a new gyro instance
  */
-uint8_t AP_InertialSensor::register_gyro(uint16_t raw_sample_rate_hz,
-                                         uint32_t id)
+bool AP_InertialSensor::register_gyro(uint8_t &instance, uint16_t raw_sample_rate_hz, uint32_t id)
 {
     if (_gyro_count == INS_MAX_INSTANCES) {
-        AP_HAL::panic("Too many gyros");
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Failed to register gyro id %u", unsigned(id));
+        return false;
     }
 
     _gyro_raw_sample_rates[_gyro_count] = raw_sample_rate_hz;
@@ -530,17 +703,19 @@ uint8_t AP_InertialSensor::register_gyro(uint16_t raw_sample_rate_hz,
     }
 #endif
 
-    return _gyro_count++;
+    instance = _gyro_count++;
+
+    return true;
 }
 
 /*
   register a new accel instance
  */
-uint8_t AP_InertialSensor::register_accel(uint16_t raw_sample_rate_hz,
-                                          uint32_t id)
+bool AP_InertialSensor::register_accel(uint8_t &instance, uint16_t raw_sample_rate_hz, uint32_t id)
 {
     if (_accel_count == INS_MAX_INSTANCES) {
-        AP_HAL::panic("Too many accels");
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Failed to register accel id %u", unsigned(id));
+        return false;
     }
 
     _accel_raw_sample_rates[_accel_count] = raw_sample_rate_hz;
@@ -568,7 +743,8 @@ uint8_t AP_InertialSensor::register_accel(uint16_t raw_sample_rate_hz,
         _accel_id[_accel_count].save();
 #endif
 
-    return _accel_count++;
+    instance = _accel_count++;
+    return true;
 }
 
 /*
@@ -600,7 +776,6 @@ void AP_InertialSensor::_start_backends()
 /* Find the N instance of the backend that has already been successfully detected */
 AP_InertialSensor_Backend *AP_InertialSensor::_find_backend(int16_t backend_id, uint8_t instance)
 {
-    assert(_backends_detected);
     uint8_t found = 0;
 
     for (uint8_t i = 0; i < _backend_count; i++) {
@@ -620,12 +795,36 @@ AP_InertialSensor_Backend *AP_InertialSensor::_find_backend(int16_t backend_id, 
     return nullptr;
 }
 
+bool AP_InertialSensor::set_gyro_window_size(uint16_t size) {
+#if HAL_WITH_DSP
+    _gyro_window_size = size;
+
+    // allocate FFT gyro window
+    for (uint8_t i = 0; i < INS_MAX_INSTANCES; i++) {
+        for (uint8_t j = 0; j < XYZ_AXIS_COUNT; j++) {
+            if (!_gyro_window[i][j].set_size(size)) {
+                GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "Failed to allocate window for INS");
+                // clean up whatever we have currently allocated
+                for (uint8_t ii = 0; ii <= i; ii++) {
+                    for (uint8_t jj = 0; jj < j; jj++) {
+                        _gyro_window[ii][jj].set_size(0);
+                        _gyro_window_size = 0;
+                    }
+                }
+                return false;
+            }
+        }
+    }
+#endif
+    return true;
+}
+
 void
-AP_InertialSensor::init(uint16_t sample_rate)
+AP_InertialSensor::init(uint16_t loop_rate)
 {
     // remember the sample rate
-    _sample_rate = sample_rate;
-    _loop_delta_t = 1.0f / sample_rate;
+    _loop_rate = loop_rate;
+    _loop_delta_t = 1.0f / loop_rate;
 
     // we don't allow deltat values greater than 10x the normal loop
     // time to be exposed outside of INS. Large deltat values can
@@ -649,7 +848,7 @@ AP_InertialSensor::init(uint16_t sample_rate)
         init_gyro();
     }
 
-    _sample_period_usec = 1000*1000UL / _sample_rate;
+    _sample_period_usec = 1000*1000UL / _loop_rate;
 
     // establish the baseline time between samples
     _delta_time = 0;
@@ -663,14 +862,24 @@ AP_InertialSensor::init(uint16_t sample_rate)
     // the center frequency of the harmonic notch is always taken from the calculated value so that it can be updated
     // dynamically, the calculated value is always some multiple of the configured center frequency, so start with the
     // configured value
-    _calculated_harmonic_notch_freq_hz = _harmonic_notch_filter.center_freq_hz();
+    _calculated_harmonic_notch_freq_hz[0] = _harmonic_notch_filter.center_freq_hz();
+    _num_calculated_harmonic_notch_frequencies = 1;
 
     for (uint8_t i=0; i<get_gyro_count(); i++) {
-        _gyro_harmonic_notch_filter[i].allocate_filters(_harmonic_notch_filter.harmonics());
+        _gyro_harmonic_notch_filter[i].allocate_filters(_harmonic_notch_filter.harmonics(), _harmonic_notch_filter.hasOption(HarmonicNotchFilterParams::Options::DoubleNotch));
         // initialise default settings, these will be subsequently changed in AP_InertialSensor_Backend::update_gyro()
-        _gyro_harmonic_notch_filter[i].init(_gyro_raw_sample_rates[i], _calculated_harmonic_notch_freq_hz,
+        _gyro_harmonic_notch_filter[i].init(_gyro_raw_sample_rates[i], _calculated_harmonic_notch_freq_hz[0],
              _harmonic_notch_filter.bandwidth_hz(), _harmonic_notch_filter.attenuation_dB());
     }
+
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+    /*
+      see if user has setup for on-boot enable of temperature learning
+     */
+    if (temperature_cal_running()) {
+        tcal_learning = true;
+    }
+#endif
 }
 
 bool AP_InertialSensor::_add_backend(AP_InertialSensor_Backend *backend)
@@ -729,17 +938,23 @@ AP_InertialSensor::detect_backends(void)
 // macro for use by HAL_INS_PROBE_LIST
 #define GET_I2C_DEVICE(bus, address) hal.i2c_mgr->get_device(bus, address)
 
-    if (_hil_mode) {
-        ADD_BACKEND(AP_InertialSensor_HIL::detect(*this));
-        return;
+#if HAL_EXTERNAL_AHRS_ENABLED
+    // if enabled, make the first IMU the external AHRS
+    if (int8_t serial_port = AP::externalAHRS().get_port() >= 0) {
+        ADD_BACKEND(new AP_InertialSensor_ExternalAHRS(*this, serial_port));
     }
+#endif
+
 #if defined(HAL_INS_PROBE_LIST)
     // IMUs defined by IMU lines in hwdef.dat
     HAL_INS_PROBE_LIST;
 #elif CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    ADD_BACKEND(AP_InertialSensor_SITL::detect(*this));
-#elif HAL_INS_DEFAULT == HAL_INS_HIL
-    ADD_BACKEND(AP_InertialSensor_HIL::detect(*this));
+    for (uint8_t i=0; i<AP::sitl()->imu_count; i++) {
+        ADD_BACKEND(AP_InertialSensor_SITL::detect(*this, i==1?INS_SITL_SENSOR_B:INS_SITL_SENSOR_A));
+    }
+#if defined(HAL_SITL_INVENSENSEV3)
+    ADD_BACKEND(AP_InertialSensor_Invensensev3::probe(*this, hal.i2c_mgr->get_device(1, 1), ROTATION_NONE));
+#endif
 #elif AP_FEATURE_BOARD_DETECT
     switch (AP_BoardConfig::get_board_type()) {
     case AP_BoardConfig::PX4_BOARD_PX4V1:
@@ -867,7 +1082,7 @@ AP_InertialSensor::detect_backends(void)
 #endif
 
     if (_backend_count == 0) {
-        AP_BoardConfig::sensor_config_error("INS: unable to initialise driver");
+        AP_BoardConfig::config_error("INS: unable to initialise driver");
     }
 }
 
@@ -890,12 +1105,12 @@ bool AP_InertialSensor::_calculate_trim(const Vector3f &accel_sample, float& tri
     trim_roll = atan2f(-accel_sample.y, -accel_sample.z);
     if (fabsf(trim_roll) > radians(10) ||
         fabsf(trim_pitch) > radians(10)) {
-        hal.console->printf("trim over maximum of 10 degrees\n");
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "trim over maximum of 10 degrees");
         return false;
     }
-    hal.console->printf("Trim OK: roll=%.2f pitch=%.2f\n",
-                          (double)degrees(trim_roll),
-                          (double)degrees(trim_pitch));
+    GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Trim OK: roll=%.2f pitch=%.2f",
+                  (double)degrees(trim_roll),
+                  (double)degrees(trim_pitch));
     return true;
 }
 
@@ -906,6 +1121,16 @@ AP_InertialSensor::init_gyro()
 
     // save calibration
     _save_gyro_calibration();
+}
+
+// output GCS startup messages
+bool AP_InertialSensor::get_output_banner(uint8_t backend_id, char* banner, uint8_t banner_len)
+{
+    if (backend_id >= INS_MAX_BACKENDS || _backends[backend_id] == nullptr) {
+        return false;
+    }
+
+    return _backends[backend_id]->get_output_banner(banner, banner_len);
 }
 
 // accelerometer clipping reporting
@@ -978,13 +1203,11 @@ bool AP_InertialSensor::calibrate_trim(float &trim_roll, float &trim_pitch)
     Vector3f level_sample;
 
     // exit immediately if calibration is already in progress
-    if (_calibrating) {
+    if (calibrating()) {
         return false;
     }
 
-    _calibrating = true;
-
-    const uint8_t update_dt_milliseconds = (uint8_t)(1000.0f/get_sample_rate()+0.5f);
+    const uint8_t update_dt_milliseconds = (uint8_t)(1000.0f/get_loop_rate_hz()+0.5f);
 
     // wait 100ms for ins filter to rise
     for (uint8_t k=0; k<100/update_dt_milliseconds; k++) {
@@ -1014,11 +1237,9 @@ bool AP_InertialSensor::calibrate_trim(float &trim_roll, float &trim_pitch)
         goto failed;
     }
 
-    _calibrating = false;
     return true;
 
 failed:
-    _calibrating = false;
     return false;
 }
 
@@ -1027,11 +1248,6 @@ failed:
  */
 bool AP_InertialSensor::accel_calibrated_ok_all() const
 {
-    // calibration is not applicable for HIL mode
-    if (_hil_mode) {
-        return true;
-    }
-
     // check each accelerometer has offsets saved
     for (uint8_t i=0; i<get_accel_count(); i++) {
         if (!_accel_id_ok[i]) {
@@ -1087,14 +1303,17 @@ AP_InertialSensor::_init_gyro()
     Vector3f new_gyro_offset[INS_MAX_INSTANCES];
     float best_diff[INS_MAX_INSTANCES];
     bool converged[INS_MAX_INSTANCES];
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+    float start_temperature[INS_MAX_INSTANCES] {};
+#endif
 
     // exit immediately if calibration is already in progress
-    if (_calibrating) {
+    if (calibrating()) {
         return;
     }
 
     // record we are calibrating
-    _calibrating = true;
+    _calibrating_gyro = true;
 
     // flash leds to tell user to keep the IMU still
     AP_Notify::flags.initialising = true;
@@ -1122,6 +1341,16 @@ AP_InertialSensor::_init_gyro()
         hal.scheduler->delay(5);
         update();
     }
+
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+    // get start temperature. gyro cal usually happens when the board
+    // has just been powered on, so the temperature may be changing
+    // rapidly. We use the average between start and end temperature
+    // as the calibration temperature to minimise errors
+    for (uint8_t k=0; k<num_gyros; k++) {
+        start_temperature[k] = get_temperature(k);
+    }
+#endif
 
     // the strategy is to average 50 points over 0.5 seconds, then do it
     // again and see if the 2nd average is within a small margin of
@@ -1207,6 +1436,9 @@ AP_InertialSensor::_init_gyro()
         } else {
             _gyro_cal_ok[k] = true;
             _gyro_offset[k] = new_gyro_offset[k];
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+            caltemp_gyro[k] = 0.5 * (get_temperature(k) + start_temperature[k]);
+#endif
         }
     }
 
@@ -1214,7 +1446,7 @@ AP_InertialSensor::_init_gyro()
     _board_orientation = saved_orientation;
 
     // record calibration complete
-    _calibrating = false;
+    _calibrating_gyro = false;
 
     // stop flashing leds
     AP_Notify::flags.initialising = false;
@@ -1226,10 +1458,16 @@ void AP_InertialSensor::_save_gyro_calibration()
     for (uint8_t i=0; i<_gyro_count; i++) {
         _gyro_offset[i].save();
         _gyro_id[i].save();
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+        caltemp_gyro[i].save();
+#endif
     }
     for (uint8_t i=_gyro_count; i<INS_MAX_INSTANCES; i++) {
         _gyro_offset[i].set_and_save(Vector3f());
         _gyro_id[i].set_and_save(0);
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+        caltemp_gyro[i].set_and_save_ifchanged(-300);
+#endif
     }
 }
 
@@ -1243,7 +1481,6 @@ void AP_InertialSensor::update(void)
     // wait_for_sample(), and a wait is implied
     wait_for_sample();
 
-    if (!_hil_mode) {
         for (uint8_t i=0; i<INS_MAX_INSTANCES; i++) {
             // mark sensors unhealthy and let update() in each backend
             // mark them healthy via _publish_gyro() and
@@ -1324,11 +1561,19 @@ void AP_InertialSensor::update(void)
                 break;
             }
         }
-    }
 
     _last_update_usec = AP_HAL::micros();
     
     _have_sample = false;
+
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+    if (tcal_learning && !temperature_cal_running()) {
+        AP_Notify::flags.temp_cal_running = false;
+        AP_Notify::events.temp_cal_saved = 1;
+        tcal_learning = false;
+        GCS_SEND_TEXT(MAV_SEVERITY_WARNING, "TCAL finished all IMUs");
+    }
+#endif
 }
 
 /*
@@ -1389,11 +1634,14 @@ void AP_InertialSensor::wait_for_sample(void)
     }
 
 check_sample:
-    if (!_hil_mode) {
         // now we wait until we have the gyro and accel samples we need
         uint8_t gyro_available_mask = 0;
         uint8_t accel_available_mask = 0;
         uint32_t wait_counter = 0;
+        // allow to wait for up to 1/3 of the loop time for samples from all
+        // IMUs to come in
+        const uint8_t wait_per_loop = 100;
+        const uint8_t wait_counter_limit = uint32_t(_loop_delta_t * 1.0e6) / (3*wait_per_loop);
 
         while (true) {
             for (uint8_t i=0; i<_backend_count; i++) {
@@ -1425,10 +1673,10 @@ check_sample:
                 }
             }
 
-            // we wait for up to 800us to get all of the required
+            // we wait for up to 1/3 of the loop time to get all of the required
             // accel and gyro samples. After that we accept at least
             // one of each
-            if (wait_counter < 7) {
+            if (wait_counter < wait_counter_limit) {
                 if (gyro_available_mask &&
                     ((gyro_available_mask & _gyro_wait_mask) == _gyro_wait_mask) &&
                     accel_available_mask &&
@@ -1446,18 +1694,12 @@ check_sample:
                 }
             }
 
-            hal.scheduler->delay_microseconds_boost(100);
+            hal.scheduler->delay_microseconds_boost(wait_per_loop);
             wait_counter++;
         }
-    }
 
     now = AP_HAL::micros();
-    if (_hil_mode && _hil.delta_time > 0) {
-        _delta_time = _hil.delta_time;
-        _hil.delta_time = 0;
-    } else {
-        _delta_time = (now - _last_sample_usec) * 1.0e-6f;
-    }
+    _delta_time = (now - _last_sample_usec) * 1.0e-6f;
     _last_sample_usec = now;
 
 #if 0
@@ -1485,8 +1727,15 @@ check_sample:
 /*
   get delta angles
  */
-bool AP_InertialSensor::get_delta_angle(uint8_t i, Vector3f &delta_angle) const
+bool AP_InertialSensor::get_delta_angle(uint8_t i, Vector3f &delta_angle, float &delta_angle_dt) const
 {
+    if (_delta_angle_valid[i] && _delta_angle_dt[i] > 0) {
+        delta_angle_dt = _delta_angle_dt[i];
+    } else {
+        delta_angle_dt = get_delta_time();
+    }
+    delta_angle_dt = MIN(delta_angle_dt, _loop_delta_t_max);
+
     if (_delta_angle_valid[i]) {
         delta_angle = _delta_angle[i];
         return true;
@@ -1502,8 +1751,15 @@ bool AP_InertialSensor::get_delta_angle(uint8_t i, Vector3f &delta_angle) const
 /*
   get delta velocity if available
 */
-bool AP_InertialSensor::get_delta_velocity(uint8_t i, Vector3f &delta_velocity) const
+bool AP_InertialSensor::get_delta_velocity(uint8_t i, Vector3f &delta_velocity, float &delta_velocity_dt) const
 {
+    if (_delta_velocity_valid[i]) {
+        delta_velocity_dt = _delta_velocity_dt[i];
+    } else {
+        delta_velocity_dt = get_delta_time();
+    }
+    delta_velocity_dt = MIN(delta_velocity_dt, _loop_delta_t_max);
+
     if (_delta_velocity_valid[i]) {
         delta_velocity = _delta_velocity[i];
         return true;
@@ -1512,109 +1768,6 @@ bool AP_InertialSensor::get_delta_velocity(uint8_t i, Vector3f &delta_velocity) 
         return true;
     }
     return false;
-}
-
-/*
-  return delta_time for the delta_velocity
- */
-float AP_InertialSensor::get_delta_velocity_dt(uint8_t i) const
-{
-    float ret;
-    if (_delta_velocity_valid[i]) {
-        ret = _delta_velocity_dt[i];
-    } else {
-        ret = get_delta_time();
-    }
-    ret = MIN(ret, _loop_delta_t_max);
-    return ret;
-}
-
-/*
-  return delta_time for the delta_angle
- */
-float AP_InertialSensor::get_delta_angle_dt(uint8_t i) const
-{
-    float ret;
-    if (_delta_angle_valid[i] && _delta_angle_dt[i] > 0) {
-        ret = _delta_angle_dt[i];
-    } else {
-        ret = get_delta_time();
-    }
-    ret = MIN(ret, _loop_delta_t_max);
-    return ret;
-}
-
-
-/*
-  support for setting accel and gyro vectors, for use by HIL
- */
-void AP_InertialSensor::set_accel(uint8_t instance, const Vector3f &accel)
-{
-    if (_accel_count == 0) {
-        // we haven't initialised yet
-        return;
-    }
-    if (instance < INS_MAX_INSTANCES) {
-        _accel[instance] = accel;
-        _accel_healthy[instance] = true;
-        if (_accel_count <= instance) {
-            _accel_count = instance+1;
-        }
-        if (!_accel_healthy[_primary_accel]) {
-            _primary_accel = instance;
-        }
-    }
-}
-
-void AP_InertialSensor::set_gyro(uint8_t instance, const Vector3f &gyro)
-{
-    if (_gyro_count == 0) {
-        // we haven't initialised yet
-        return;
-    }
-    if (instance < INS_MAX_INSTANCES) {
-        _gyro[instance] = gyro;
-        _gyro_healthy[instance] = true;
-        if (_gyro_count <= instance) {
-            _gyro_count = instance+1;
-            _gyro_cal_ok[instance] = true;
-        }
-        if (!_accel_healthy[_primary_accel]) {
-            _primary_accel = instance;
-        }
-    }
-}
-
-/*
-  set delta time for next ins.update()
- */
-void AP_InertialSensor::set_delta_time(float delta_time)
-{
-    _hil.delta_time = delta_time;
-}
-
-/*
-  set delta velocity for next update
- */
-void AP_InertialSensor::set_delta_velocity(uint8_t instance, float deltavt, const Vector3f &deltav)
-{
-    if (instance < INS_MAX_INSTANCES) {
-        _delta_velocity_valid[instance] = true;
-        _delta_velocity[instance] = deltav;
-        _delta_velocity_dt[instance] = deltavt;
-    }
-}
-
-/*
-  set delta angle for next update
- */
-void AP_InertialSensor::set_delta_angle(uint8_t instance, const Vector3f &deltaa, float deltaat)
-{
-    if (instance < INS_MAX_INSTANCES) {
-        _delta_angle_valid[instance] = true;
-        _delta_angle[instance] = deltaa;
-        _delta_angle_dt[instance] = deltaat;
-    }
 }
 
 /*
@@ -1698,6 +1851,25 @@ bool AP_InertialSensor::is_still()
            (vibe.z < _still_threshold);
 }
 
+// return true if we are in a calibration
+bool AP_InertialSensor::calibrating() const
+{
+    return _calibrating_accel || _calibrating_gyro || (_acal && _acal->running());
+}
+
+/// calibrating - returns true if a temperature calibration is running
+bool AP_InertialSensor::temperature_cal_running() const
+{
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+    for (uint8_t i=0; i<INS_MAX_INSTANCES; i++) {
+        if (tcal[i].enable == TCal::Enable::LearnCalibration) {
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
 // initialise and register accel calibrator
 // called during the startup of accel cal
 void AP_InertialSensor::acal_init()
@@ -1730,8 +1902,21 @@ void AP_InertialSensor::acal_update()
 void AP_InertialSensor::update_harmonic_notch_freq_hz(float scaled_freq) {
     // protect against zero as the scaled frequency
     if (is_positive(scaled_freq)) {
-        _calculated_harmonic_notch_freq_hz = scaled_freq;
+        _calculated_harmonic_notch_freq_hz[0] = scaled_freq;
     }
+    _num_calculated_harmonic_notch_frequencies = 1;
+}
+
+// Update the harmonic notch frequency
+void AP_InertialSensor::update_harmonic_notch_frequencies_hz(uint8_t num_freqs, const float scaled_freq[]) {
+    // protect against zero as the scaled frequency
+    for (uint8_t i = 0; i < num_freqs; i++) {
+        if (is_positive(scaled_freq[i])) {
+            _calculated_harmonic_notch_freq_hz[i] = scaled_freq[i];
+        }
+    }
+    // any uncalculated frequencies will float at the previous value or the initialized freq if none
+    _num_calculated_harmonic_notch_frequencies = num_freqs;
 }
 
 /*
@@ -1747,9 +1932,15 @@ void AP_InertialSensor::_acal_save_calibrations()
             _accel_scale[i].set_and_save(gain);
             _accel_id[i].save();
             _accel_id_ok[i] = true;
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+            caltemp_accel[i].set_and_save(get_temperature(i));
+#endif
         } else {
             _accel_offset[i].set_and_save(Vector3f());
             _accel_scale[i].set_and_save(Vector3f());
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+            caltemp_accel[i].set_and_save(-300);
+#endif
         }
     }
 
@@ -1758,6 +1949,9 @@ void AP_InertialSensor::_acal_save_calibrations()
         _accel_id[i].set_and_save(0);
         _accel_offset[i].set_and_save(Vector3f());
         _accel_scale[i].set_and_save(Vector3f());
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+        caltemp_accel[i].set_and_save_ifchanged(-300);
+#endif
     }
     
     Vector3f aligned_sample;
@@ -1884,18 +2078,16 @@ MAV_RESULT AP_InertialSensor::simple_accel_cal()
     Vector3f rotated_gravity(0, 0, -GRAVITY_MSS);
     
     // exit immediately if calibration is already in progress
-    if (_calibrating) {
+    if (calibrating()) {
         return MAV_RESULT_TEMPORARILY_REJECTED;
     }
 
     EXPECT_DELAY_MS(20000);
     // record we are calibrating
-    _calibrating = true;
+    _calibrating_accel = true;
 
     // flash leds to tell user to keep the IMU still
     AP_Notify::flags.initialising = true;
-
-    hal.console->printf("Simple accel cal");
 
     /*
       we do the accel calibration with no board rotation. This avoids
@@ -1998,6 +2190,9 @@ MAV_RESULT AP_InertialSensor::simple_accel_cal()
             _accel_scale[k].save();
             _accel_id[k].save();
             _accel_id_ok[k] = true;
+#if HAL_INS_TEMPERATURE_CAL_ENABLE
+            caltemp_accel[k].set_and_save(get_temperature(k));
+#endif
         }
 
         // force trim to zero
@@ -2012,7 +2207,7 @@ MAV_RESULT AP_InertialSensor::simple_accel_cal()
     }
 
     // record calibration complete
-    _calibrating = false;
+    _calibrating_accel = false;
 
     // throw away any existing samples that may have the wrong
     // orientation. We do this by throwing samples away for 0.5s,
@@ -2068,6 +2263,29 @@ void AP_InertialSensor::kill_imu(uint8_t imu_idx, bool kill_it)
 #endif // HAL_MINIMIZE_FEATURES
 
 
+#if HAL_EXTERNAL_AHRS_ENABLED
+void AP_InertialSensor::handle_external(const AP_ExternalAHRS::ins_data_message_t &pkt)
+{
+    for (uint8_t i = 0; i < _backend_count; i++) {
+        _backends[i]->handle_external(pkt);
+    }
+}
+#endif // HAL_EXTERNAL_AHRS_ENABLED
+
+// force save of current calibration as valid
+void AP_InertialSensor::force_save_calibration(void)
+{
+    for (uint8_t i=0; i<_accel_count; i++) {
+        if (_accel_id[i] != 0) {
+            _accel_id[i].save();
+            // we also save the scale as the default of 1.0 may be
+            // over a stored value of 0.0
+            _accel_scale[i].save();
+            _accel_id_ok[i] = true;
+        }
+    }
+}
+
 namespace AP {
 
 AP_InertialSensor &ins()
@@ -2076,3 +2294,6 @@ AP_InertialSensor &ins()
 }
 
 };
+
+#endif //#if HAL_INS_ENABLED
+

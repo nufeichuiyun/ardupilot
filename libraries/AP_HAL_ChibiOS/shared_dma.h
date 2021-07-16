@@ -11,7 +11,7 @@
  *
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
- * 
+ *
  * Code by Andrew Tridgell and Siddharth Bharat Purohit
  */
 #pragma once
@@ -22,6 +22,8 @@
 
 // DMA stream ID for stream_id2 when only one is needed
 #define SHARED_DMA_NONE 255
+
+#ifndef HAL_NO_SHARED_DMA
 
 class ChibiOS::Shared_DMA
 {
@@ -37,34 +39,34 @@ public:
 
     // initialise the stream locks
     static void init(void);
-    
+
     // blocking lock call
     void lock(void);
 
     // non-blocking lock call
     bool lock_nonblock(void);
-    
+
     // unlock call. The DMA channel will not be immediately
     // deallocated. Instead it will be deallocated if another driver
     // needs it
-    void unlock(void);
+    void unlock(bool success = true);
 
-    // unlock call from an IRQ
-    void unlock_from_IRQ(void);
-
-    // unlock call from a chSysLock zone
-    void unlock_from_lockzone(void);
-    
     //should be called inside the destructor of Shared DMA participants
     void unregister(void);
 
     // return true if this DMA channel is being actively contended for
     // by multiple drivers
     bool has_contention(void) const { return contention; }
-    
+
+    // is this DMA channel locked?
+    bool is_locked(void) const { return have_lock; }
+
     // lock all shared DMA channels. Used on reboot
     static void lock_all(void);
-    
+
+    // display dma contention statistics as text buffer for @SYS/dma.txt
+    static void dma_info(ExpandingString &str);
+
 private:
     dma_allocate_fn_t allocate;
     dma_allocate_fn_t deallocate;
@@ -80,22 +82,19 @@ private:
     void lock_core(void);
 
     // lock one stream
-    static void lock_stream(uint8_t stream_id);
+    static bool lock_stream(uint8_t stream_id);
 
     // unlock one stream
-    void unlock_stream(uint8_t stream_id);
-
-    // unlock one stream from an IRQ handler
-    void unlock_stream_from_IRQ(uint8_t stream_id);
+    void unlock_stream(uint8_t stream_id, bool success);
 
     // lock one stream, non-blocking
     bool lock_stream_nonblocking(uint8_t stream_id);
-    
+
     static struct dma_lock {
         // semaphore to ensure only one peripheral uses a DMA channel at a time
-#if CH_CFG_USE_SEMAPHORES == TRUE
-        binary_semaphore_t semaphore;
-#endif // CH_CFG_USE_SEMAPHORES
+#if CH_CFG_USE_MUTEXES == TRUE
+        mutex_t mutex;
+#endif // CH_CFG_USE_MUTEXES
 
         // a de-allocation function that is called to release an existing user
         dma_deallocate_fn_t deallocate;
@@ -103,7 +102,13 @@ private:
         // point to object that holds the allocation, if allocated
         Shared_DMA *obj;
     } locks[SHARED_DMA_MAX_STREAM_ID+1];
+
+    // contention statistics
+    static volatile struct dma_stats {
+        uint32_t contended_locks;
+        uint32_t uncontended_locks;
+        uint32_t transactions;
+    } *_contention_stats;
 };
 
-
-
+#endif // HAL_NO_SHARED_DMA

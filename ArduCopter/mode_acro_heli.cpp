@@ -45,20 +45,20 @@ void ModeAcro_Heli::run()
     switch (motors->get_spool_state()) {
     case AP_Motors::SpoolState::SHUT_DOWN:
         // Motors Stopped
-        attitude_control->set_attitude_target_to_current_attitude();
+        attitude_control->reset_target_and_rate(false);
         attitude_control->reset_rate_controller_I_terms();
         break;
     case AP_Motors::SpoolState::GROUND_IDLE:
-        // Landed
-        if (motors->init_targets_on_arming()) {
-            attitude_control->set_attitude_target_to_current_attitude();
-            attitude_control->reset_rate_controller_I_terms();
+        // If aircraft is landed, set target heading to current and reset the integrator
+        // Otherwise motors could be at ground idle for practice autorotation
+        if ((motors->init_targets_on_arming() && motors->using_leaky_integrator()) || (copter.ap.land_complete && !motors->using_leaky_integrator())) {
+            attitude_control->reset_target_and_rate(false);
+            attitude_control->reset_rate_controller_I_terms_smoothly();
         }
         break;
     case AP_Motors::SpoolState::THROTTLE_UNLIMITED:
-        // clear landing flag above zero throttle
-        if (!motors->limit.throttle_lower) {
-            set_land_complete(false);
+        if (copter.ap.land_complete && !motors->using_leaky_integrator()) {
+            attitude_control->reset_rate_controller_I_terms_smoothly();
         }
         break;
     case AP_Motors::SpoolState::SPOOLING_UP:
@@ -71,7 +71,7 @@ void ModeAcro_Heli::run()
         // convert the input to the desired body frame rate
         get_pilot_desired_angle_rates(channel_roll->get_control_in(), channel_pitch->get_control_in(), channel_yaw->get_control_in(), target_roll, target_pitch, target_yaw);
         // only mimic flybar response when trainer mode is disabled
-        if (g.acro_trainer == ACRO_TRAINER_DISABLED) {
+        if ((Trainer)g.acro_trainer.get() == Trainer::OFF) {
             // while landed always leak off target attitude to current attitude
             if (copter.ap.land_complete) {
                 virtual_flybar(target_roll, target_pitch, target_yaw, 3.0f, 3.0f);
@@ -88,7 +88,11 @@ void ModeAcro_Heli::run()
         }
 
         // run attitude controller
-        attitude_control->input_rate_bf_roll_pitch_yaw(target_roll, target_pitch, target_yaw);
+        if (g2.acro_options.get() & uint8_t(AcroOptions::RATE_LOOP_ONLY)) {
+            attitude_control->input_rate_bf_roll_pitch_yaw_2(target_roll, target_pitch, target_yaw);
+        } else {
+            attitude_control->input_rate_bf_roll_pitch_yaw(target_roll, target_pitch, target_yaw);
+        }
     }else{
         /*
           for fly-bar passthrough use control_in values with no

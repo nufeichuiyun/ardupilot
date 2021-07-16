@@ -68,9 +68,7 @@ bool AP_Airspeed_SDP3X::init()
         if (!_dev) {
             continue;
         }
-        if (!_dev->get_semaphore()->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
-            continue;
-        }
+        _dev->get_semaphore()->take_blocking();
 
         // lots of retries during probe
         _dev->set_retries(10);
@@ -84,9 +82,7 @@ bool AP_Airspeed_SDP3X::init()
         // these delays are needed for reliable operation
         _dev->get_semaphore()->give();
         hal.scheduler->delay_microseconds(20000);
-        if (!_dev->get_semaphore()->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
-            continue;
-        }
+        _dev->get_semaphore()->take_blocking();
 
         // start continuous average mode
         if (!_send_command(SDP3X_CONT_MEAS_AVG_MODE)) {
@@ -97,9 +93,7 @@ bool AP_Airspeed_SDP3X::init()
         // these delays are needed for reliable operation
         _dev->get_semaphore()->give();
         hal.scheduler->delay_microseconds(20000);
-        if (!_dev->get_semaphore()->take(HAL_SEMAPHORE_BLOCK_FOREVER)) {
-            continue;
-        }
+        _dev->get_semaphore()->take_blocking();
 
         // step 3 - get scale
         uint8_t val[9];
@@ -121,6 +115,7 @@ bool AP_Airspeed_SDP3X::init()
 
         found = true;
 
+#ifndef HAL_NO_GCS
         char c = 'X';
         switch (_scale) {
         case SDP3X_SCALE_PRESSURE_SDP31:
@@ -133,8 +128,10 @@ bool AP_Airspeed_SDP3X::init()
             c = '3';
             break;
         }
-        hal.console->printf("SDP3%c: Found on bus %u address 0x%02x scale=%u\n",
-                            c, get_bus(), addresses[i], _scale);
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO, "SDP3%c[%u]: Found bus %u addr 0x%02x scale=%u",
+                      get_instance(),
+                      c, get_bus(), addresses[i], _scale);
+#endif
     }
 
     if (!found) {
@@ -148,6 +145,9 @@ bool AP_Airspeed_SDP3X::init()
     set_skip_cal();
     set_offset(0);
     
+    _dev->set_device_type(uint8_t(DevType::SDP3X));
+    set_bus_id(_dev->get_bus_id());
+
     // drop to 2 retries for runtime
     _dev->set_retries(2);
 
@@ -205,7 +205,7 @@ float AP_Airspeed_SDP3X::_correct_pressure(float press)
     case AP_Airspeed::PITOT_TUBE_ORDER_NEGATIVE:
         press = -press;
         sign = -1.0f;
-    //FALLTHROUGH;
+        break;
     case AP_Airspeed::PITOT_TUBE_ORDER_POSITIVE:
         break;
     case AP_Airspeed::PITOT_TUBE_ORDER_AUTO:
@@ -265,6 +265,10 @@ float AP_Airspeed_SDP3X::_correct_pressure(float press)
 
     // airspeed ratio
     float ratio = get_airspeed_ratio();
+    if (!is_positive(ratio)) {
+        // cope with AP_Periph where ratio is 0
+        ratio = 2.0;
+    }
 
     // calculate equivalent pressure correction. This formula comes
     // from turning the dv correction above into an equivalent
@@ -278,18 +282,16 @@ float AP_Airspeed_SDP3X::_correct_pressure(float press)
 // return the current differential_pressure in Pascal
 bool AP_Airspeed_SDP3X::get_differential_pressure(float &pressure)
 {
-    uint32_t now = AP_HAL::millis();
-    if (now - _last_sample_time_ms > 100) {
+    WITH_SEMAPHORE(sem);
+
+    if (AP_HAL::millis() - _last_sample_time_ms > 100) {
         return false;
     }
 
-    {
-        WITH_SEMAPHORE(sem);
-        if (_press_count > 0) {
-            _press = _press_sum / _press_count;
-            _press_count = 0;
-            _press_sum = 0;
-        }
+    if (_press_count > 0) {
+        _press = _press_sum / _press_count;
+        _press_count = 0;
+        _press_sum = 0;
     }
 
     pressure = _correct_pressure(_press);
@@ -299,11 +301,11 @@ bool AP_Airspeed_SDP3X::get_differential_pressure(float &pressure)
 // return the current temperature in degrees C, if available
 bool AP_Airspeed_SDP3X::get_temperature(float &temperature)
 {
+    WITH_SEMAPHORE(sem);
+
     if ((AP_HAL::millis() - _last_sample_time_ms) > 100) {
         return false;
     }
-
-    WITH_SEMAPHORE(sem);
 
     if (_temp_count > 0) {
         _temp = _temp_sum / _temp_count;
@@ -318,7 +320,7 @@ bool AP_Airspeed_SDP3X::get_temperature(float &temperature)
 /*
   check CRC for a set of bytes
  */
-bool AP_Airspeed_SDP3X::_crc(const uint8_t data[], unsigned size, uint8_t checksum)
+bool AP_Airspeed_SDP3X::_crc(const uint8_t data[], uint8_t size, uint8_t checksum)
 {
     uint8_t crc_value = 0xff;
 

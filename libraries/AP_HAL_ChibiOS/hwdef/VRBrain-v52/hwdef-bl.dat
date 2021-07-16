@@ -10,19 +10,15 @@ APJ_BOARD_ID 1152
 
 # crystal frequency
 OSCILLATOR_HZ 8000000
-STM32_PLLM_VALUE 8
 
 # flash size
 FLASH_SIZE_KB 1024
 
-# board voltage
-STM32_VDD 330U
 
 # USB setup
 USB_VENDOR 0x27AC
 USB_PRODUCT 0x1152
 USB_STRING_MANUFACTURER "Laser Navigation"
-USB_STRING_SERIAL  "%SERIAL%"
 
 # don't allow bootloader to use more than 16k
 FLASH_USE_MAX_KB 16
@@ -38,7 +34,7 @@ STM32_ST_USE_TIMER 5
 
 
 # order of UARTs (and USB)
-UART_ORDER OTG1
+SERIAL_ORDER OTG1
 
 PA9 VBUS INPUT
 

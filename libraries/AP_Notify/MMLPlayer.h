@@ -10,6 +10,10 @@ public:
     void stop();
 
 private:
+
+    // initialise ready to play string
+    void prepare_to_play_string(const char* string);
+
     bool _playing;
 
     uint32_t _note_duration_us;
@@ -33,7 +37,7 @@ private:
     char next_char();
     uint8_t next_number();
     size_t next_dots();
-    float rest_duration(uint32_t rest_length, uint8_t dots);
+    float rest_duration(uint32_t rest_length, uint8_t dots) const;
 
     // Called when the MML player should start the next action
     void next_action();

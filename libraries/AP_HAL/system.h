@@ -18,6 +18,13 @@ uint16_t millis16();
 uint64_t micros64();
 uint64_t millis64();
 
+uint32_t native_micros();
+uint32_t native_millis();
+uint16_t native_millis16();
+uint64_t native_micros64();
+uint64_t native_millis64();
+
 void dump_stack_trace();
+void dump_core_file();
 
 } // namespace AP_HAL

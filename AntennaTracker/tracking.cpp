@@ -53,7 +53,7 @@ void Tracker::update_bearing_and_distance()
 
     // calculate bearing to vehicle
     // To-Do: remove need for check of control_mode
-    if (control_mode != SCAN && !nav_status.manual_control_yaw) {
+    if (mode != &mode_scan && !nav_status.manual_control_yaw) {
         nav_status.bearing  = current_loc.get_bearing_to(vehicle.location_estimate) * 0.01f;
     }
 
@@ -70,7 +70,7 @@ void Tracker::update_bearing_and_distance()
 
     // calculate pitch to vehicle
     // To-Do: remove need for check of control_mode
-    if (control_mode != SCAN && !nav_status.manual_control_pitch) {
+    if (mode->number() != Mode::Number::SCAN && !nav_status.manual_control_pitch) {
     	if (g.alt_source == ALT_SOURCE_BARO) {
     	    nav_status.pitch = degrees(atan2f(nav_status.alt_difference_baro, nav_status.distance));
     	} else {
@@ -117,28 +117,7 @@ void Tracker::update_tracking(void)
             break;
         }
     } else {
-        switch (control_mode) {
-        case AUTO:
-            if (vehicle.location_valid) {
-                update_auto();
-            } else if (tracker.target_set) {
-                update_scan();
-            }
-            break;
-
-        case MANUAL:
-            update_manual();
-            break;
-
-        case SCAN:
-            update_scan();
-            break;
-
-        case SERVO_TEST:
-        case STOP:
-        case INITIALISING:
-            break;
-        }
+        mode->update();
     }
 
     // convert servo_out to radio_out and send to servo
@@ -208,11 +187,27 @@ void Tracker::tracking_manual_control(const mavlink_manual_control_t &msg)
 /**
    update_armed_disarmed - set armed LED if we have received a position update within the last 5 seconds
  */
-void Tracker::update_armed_disarmed()
+void Tracker::update_armed_disarmed() const
 {
     if (vehicle.last_update_ms != 0 && (AP_HAL::millis() - vehicle.last_update_ms) < TRACKING_TIMEOUT_MS) {
         AP_Notify::flags.armed = true;
     } else {
         AP_Notify::flags.armed = false;
     }
+}
+
+/*
+  Returns the pan and tilt for use by onvif camera in scripting
+  the output will be mapped to -1..1 from limits specified by PITCH_MIN
+  and PITCH_MAX for tilt, and YAW_RANGE for pan
+*/
+bool Tracker::get_pan_tilt_norm(float &pan_norm, float &tilt_norm) const
+{
+    float pitch = nav_status.pitch;
+    float bearing = nav_status.bearing;
+    // set tilt value
+    tilt_norm = (((constrain_float(pitch+g.pitch_trim, g.pitch_min, g.pitch_max) - g.pitch_min)*2.0f)/(g.pitch_max - g.pitch_min)) - 1;
+    // set yaw value
+    pan_norm = (wrap_360(bearing+g.yaw_trim)*2.0f/(g.yaw_range)) - 1;
+    return true;
 }

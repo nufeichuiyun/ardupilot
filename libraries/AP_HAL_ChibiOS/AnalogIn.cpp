@@ -11,7 +11,7 @@
  *
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
- * 
+ *
  * Code by Andrew Tridgell and Siddharth Bharat Purohit
  */
 #include <AP_HAL/AP_HAL.h>
@@ -34,6 +34,8 @@ extern AP_IOMCU iomcu;
 #define CHIBIOS_ADC_MAVLINK_DEBUG 0
 #endif
 
+// MAVLink is included as we send a mavlink message as part of debug,
+// and also use the MAV_POWER flags below in update_power_flags
 #include <GCS_MAVLink/GCS_MAVLink.h>
 
 #define ANLOGIN_DEBUGGING 0
@@ -56,30 +58,32 @@ using namespace ChibiOS;
 
 /*
   scaling table between ADC count and actual input voltage, to account
-  for voltage dividers on the board. 
+  for voltage dividers on the board.
  */
 const AnalogIn::pin_info AnalogIn::pin_config[] = HAL_ANALOG_PINS;
 
 #define ADC_GRP1_NUM_CHANNELS   ARRAY_SIZE(AnalogIn::pin_config)
+
+#if defined(ADC_CFGR_RES_16BITS)
+// on H7 we use 16 bit ADC transfers, giving us more resolution. We
+// need to scale by 1/16 to match the 12 bit scale factors in hwdef.dat
+#define ADC_BOARD_SCALING (1.0/16)
+#else
+#define ADC_BOARD_SCALING 1
+#endif
 
 // samples filled in by ADC DMA engine
 adcsample_t *AnalogIn::samples;
 uint32_t AnalogIn::sample_sum[ADC_GRP1_NUM_CHANNELS];
 uint32_t AnalogIn::sample_count;
 
-AnalogSource::AnalogSource(int16_t pin, float initial_value) :
-    _pin(pin),
-    _value(initial_value),
-    _value_ratiometric(initial_value),
-    _latest_value(initial_value),
-    _sum_count(0),
-    _sum_value(0),
-    _sum_ratiometric(0)
+AnalogSource::AnalogSource(int16_t pin) :
+    _pin(pin)
 {
 }
 
 
-float AnalogSource::read_average() 
+float AnalogSource::read_average()
 {
     WITH_SEMAPHORE(_semaphore);
 
@@ -95,7 +99,7 @@ float AnalogSource::read_average()
     return _value;
 }
 
-float AnalogSource::read_latest() 
+float AnalogSource::read_latest()
 {
     return _latest_value;
 }
@@ -190,7 +194,7 @@ void AnalogIn::adccallback(ADCDriver *adcp)
 
     stm32_cacheBufferInvalidate(buffer, sizeof(adcsample_t)*ADC_DMA_BUF_DEPTH*ADC_GRP1_NUM_CHANNELS);
     for (uint8_t i = 0; i < ADC_DMA_BUF_DEPTH; i++) {
-        for (uint8_t j = 0; j < ADC_GRP1_NUM_CHANNELS; j++) { 
+        for (uint8_t j = 0; j < ADC_GRP1_NUM_CHANNELS; j++) {
             sample_sum[j] += *buffer++;
         }
     }
@@ -213,11 +217,14 @@ void AnalogIn::init()
     adcgrpcfg.circular = true;
     adcgrpcfg.num_channels = ADC_GRP1_NUM_CHANNELS;
     adcgrpcfg.end_cb = adccallback;
-#if defined(STM32H7)
-    // use 12 bits resolution to keep scaling factors the same as other boards.
-    // todo: enable oversampling in cfgr2 ?
+#if defined(ADC_CFGR_RES_16BITS)
+    // use 16 bit resolution
+    adcgrpcfg.cfgr = ADC_CFGR_CONT | ADC_CFGR_RES_16BITS;
+#elif defined(ADC_CFGR_RES_12BITS)
+    // use 12 bit resolution
     adcgrpcfg.cfgr = ADC_CFGR_CONT | ADC_CFGR_RES_12BITS;
 #else
+    // use 12 bit resolution with ADCv1 or ADCv2
     adcgrpcfg.sqr1 = ADC_SQR1_NUM_CH(ADC_GRP1_NUM_CHANNELS);
     adcgrpcfg.cr2 = ADC_CR2_SWSTART;
 #endif
@@ -228,6 +235,20 @@ void AnalogIn::init()
 #if defined(STM32H7)
         adcgrpcfg.pcsel |= (1<<chan);
         adcgrpcfg.smpr[chan/10] |= ADC_SMPR_SMP_384P5 << (3*(chan%10));
+        if (i < 4) {
+            adcgrpcfg.sqr[0] |= chan << (6*(i+1));
+        } else if (i < 9) {
+            adcgrpcfg.sqr[1] |= chan << (6*(i-4));
+        } else {
+            adcgrpcfg.sqr[2] |= chan << (6*(i-9));
+        }
+#elif defined(STM32F3) || defined(STM32G4)
+#if defined(STM32G4)
+        adcgrpcfg.smpr[chan/10] |= ADC_SMPR_SMP_640P5 << (3*(chan%10));
+#else
+        adcgrpcfg.smpr[chan/10] |= ADC_SMPR_SMP_601P5 << (3*(chan%10));
+#endif
+        // setup channel sequence
         if (i < 4) {
             adcgrpcfg.sqr[0] |= chan << (6*(i+1));
         } else if (i < 9) {
@@ -288,19 +309,19 @@ void AnalogIn::_timer_tick(void)
 
     // update power status flags
     update_power_flags();
-    
+
     // match the incoming channels to the currently active pins
     for (uint8_t i=0; i < ADC_GRP1_NUM_CHANNELS; i++) {
 #ifdef ANALOG_VCC_5V_PIN
         if (pin_config[i].channel == ANALOG_VCC_5V_PIN) {
             // record the Vcc value for later use in
             // voltage_average_ratiometric()
-            _board_voltage = buf_adc[i] * pin_config[i].scaling;
+            _board_voltage = buf_adc[i] * pin_config[i].scaling * ADC_BOARD_SCALING;
         }
 #endif
 #ifdef FMU_SERVORAIL_ADC_CHAN
         if (pin_config[i].channel == FMU_SERVORAIL_ADC_CHAN) {
-           _servorail_voltage = buf_adc[i] * pin_config[i].scaling;
+           _servorail_voltage = buf_adc[i] * pin_config[i].scaling * ADC_BOARD_SCALING;
         }
 #endif
     }
@@ -310,7 +331,7 @@ void AnalogIn::_timer_tick(void)
     _servorail_voltage = iomcu.get_vservo();
     _rssi_voltage = iomcu.get_vrssi();
 #endif
-    
+
     for (uint8_t i=0; i<ADC_GRP1_NUM_CHANNELS; i++) {
         Debug("chan %u value=%u\n",
               (unsigned)pin_config[i].channel,
@@ -320,7 +341,7 @@ void AnalogIn::_timer_tick(void)
             if (c != nullptr) {
                 if (pin_config[i].channel == c->_pin) {
                     // add a value
-                    c->_add_value(buf_adc[i], _board_voltage);
+                    c->_add_value(buf_adc[i] * ADC_BOARD_SCALING, _board_voltage);
                 } else if (c->_pin == ANALOG_SERVO_VRSSI_PIN) {
                     c->_add_value(_rssi_voltage / VOLTAGE_SCALING, 0);
                 }
@@ -338,18 +359,19 @@ void AnalogIn::_timer_tick(void)
             n = 6;
         }
         for (uint8_t i=0; i < n; i++) {
-            adc[i] = buf_adc[i];
+            adc[i] = buf_adc[i] * ADC_BOARD_SCALING;
         }
         mavlink_msg_ap_adc_send(MAVLINK_COMM_0, adc[0], adc[1], adc[2], adc[3], adc[4], adc[5]);
     }
 #endif
 }
 
-AP_HAL::AnalogSource* AnalogIn::channel(int16_t pin) 
+AP_HAL::AnalogSource* AnalogIn::channel(int16_t pin)
 {
+    WITH_SEMAPHORE(_semaphore);
     for (uint8_t j=0; j<ANALOG_MAX_CHANNELS; j++) {
         if (_channels[j] == nullptr) {
-            _channels[j] = new AnalogSource(pin, 0.0f);
+            _channels[j] = new AnalogSource(pin);
             return _channels[j];
         }
     }
@@ -364,51 +386,120 @@ void AnalogIn::update_power_flags(void)
 {
     uint16_t flags = 0;
 
-#ifdef HAL_GPIO_PIN_VDD_BRICK_VALID
-    if (!palReadLine(HAL_GPIO_PIN_VDD_BRICK_VALID)) {
+    /*
+      primary "brick" power supply valid pin. Some boards have this
+      active high, some active low. Use nVALID for active low, VALID
+      for active high
+    */
+#if defined(HAL_GPIO_PIN_VDD_BRICK_VALID)
+    if (palReadLine(HAL_GPIO_PIN_VDD_BRICK_VALID) == 1) {
+        flags |= MAV_POWER_STATUS_BRICK_VALID;
+    }
+#elif defined(HAL_GPIO_PIN_VDD_BRICK_nVALID)
+    if (palReadLine(HAL_GPIO_PIN_VDD_BRICK_nVALID) == 0) {
         flags |= MAV_POWER_STATUS_BRICK_VALID;
     }
 #endif
-    
-#ifdef HAL_GPIO_PIN_VDD_SERVO_VALID
-    if (!palReadLine(HAL_GPIO_PIN_VDD_SERVO_VALID)) {
+
+    /*
+      secondary "brick" power supply valid pin. This is servo rail
+      power valid on some boards. Some boards have this active high,
+      some active low. Use nVALID for active low, VALID for active
+      high. This maps to the MAV_POWER_STATUS_SERVO_VALID in mavlink
+      (as this was first added for older boards that used servo rail
+      for backup power)
+    */
+#if defined(HAL_GPIO_PIN_VDD_BRICK2_VALID)
+    if (palReadLine(HAL_GPIO_PIN_VDD_BRICK_VALID) == 1) {
         flags |= MAV_POWER_STATUS_SERVO_VALID;
     }
-#elif defined(HAL_GPIO_PIN_VDD_BRICK2_VALID)
-    // some boards defined BRICK2 instead of servo valid
-    if (!palReadLine(HAL_GPIO_PIN_VDD_BRICK2_VALID)) {
+#elif defined(HAL_GPIO_PIN_VDD_BRICK2_nVALID)
+    if (palReadLine(HAL_GPIO_PIN_VDD_BRICK2_nVALID) == 0) {
         flags |= MAV_POWER_STATUS_SERVO_VALID;
     }
 #endif
 
-#ifdef HAL_GPIO_PIN_VBUS
-	if (palReadLine(HAL_GPIO_PIN_VBUS)) {
+    /*
+      USB power. This can be VBUS_VALID, VBUS_nVALID or just
+      VBUS. Some boards have both a valid pin and VBUS. The VBUS pin
+      is an analog pin that could be used to read USB voltage.
+     */
+#if defined(HAL_GPIO_PIN_VBUS_VALID)
+    if (palReadLine(HAL_GPIO_PIN_VBUS_VALID) == 1) {
         flags |= MAV_POWER_STATUS_USB_CONNECTED;
     }
-#elif defined(HAL_GPIO_PIN_nVBUS)
-    if (!palReadLine(HAL_GPIO_PIN_nVBUS)) {
+#elif defined(HAL_GPIO_PIN_VBUS_nVALID)
+    if (palReadLine(HAL_GPIO_PIN_VBUS_nVALID) == 0) {
+        flags |= MAV_POWER_STATUS_USB_CONNECTED;
+    }
+#elif defined(HAL_GPIO_PIN_VBUS)
+    if (palReadLine(HAL_GPIO_PIN_VBUS) == 1) {
         flags |= MAV_POWER_STATUS_USB_CONNECTED;
     }
 #endif
-    
-#ifdef HAL_GPIO_PIN_VDD_5V_HIPOWER_OC
-    if (!palReadLine(HAL_GPIO_PIN_VDD_5V_HIPOWER_OC)) {
+
+    /*
+      overcurrent on "high power" peripheral rail.
+     */
+#if defined(HAL_GPIO_PIN_VDD_5V_HIPOWER_OC)
+    if (palReadLine(HAL_GPIO_PIN_VDD_5V_HIPOWER_OC) == 1) {
         flags |= MAV_POWER_STATUS_PERIPH_HIPOWER_OVERCURRENT;
-    }    
+    }
+#elif defined(HAL_GPIO_PIN_VDD_5V_HIPOWER_nOC)
+    if (palReadLine(HAL_GPIO_PIN_VDD_5V_HIPOWER_nOC) == 0) {
+        flags |= MAV_POWER_STATUS_PERIPH_HIPOWER_OVERCURRENT;
+    }
 #endif
 
-#ifdef HAL_GPIO_PIN_VDD_5V_PERIPH_OC
-    if (!palReadLine(HAL_GPIO_PIN_VDD_5V_PERIPH_OC)) {
+    /*
+      overcurrent on main peripheral rail.
+     */
+#if defined(HAL_GPIO_PIN_VDD_5V_PERIPH_OC)
+    if (palReadLine(HAL_GPIO_PIN_VDD_5V_PERIPH_OC) == 1) {
         flags |= MAV_POWER_STATUS_PERIPH_OVERCURRENT;
-    }    
+    }
+#elif defined(HAL_GPIO_PIN_VDD_5V_PERIPH_nOC)
+    if (palReadLine(HAL_GPIO_PIN_VDD_5V_PERIPH_nOC) == 0) {
+        flags |= MAV_POWER_STATUS_PERIPH_OVERCURRENT;
+    }
 #endif
-    if (_power_flags != 0 && 
-        _power_flags != flags && 
+
+#if defined(HAL_GPIO_PIN_VDD_SERVO_VALID)
+#error "building with old hwdef.dat"
+#endif
+
+#if 0
+    /*
+      this bit of debug code is useful when testing the polarity of
+      VALID pins for power sources. It allows you to see the change on
+      USB with a 3s delay, so you can see USB changes by unplugging
+      and re-inserting USB power
+     */
+    static uint32_t last_change_ms;
+    uint32_t now = AP_HAL::millis();
+    if (_power_flags != flags) {
+        if (last_change_ms == 0) {
+            last_change_ms = now;
+        } else if (now - last_change_ms > 3000) {
+            last_change_ms = 0;
+            hal.console->printf("POWR: 0x%02x -> 0x%02x\n", _power_flags, flags);
+            _power_flags = flags;
+        }
+        if (hal.util->get_soft_armed()) {
+            // the power status has changed while armed
+            flags |= MAV_POWER_STATUS_CHANGED;
+        }
+        return;
+    }
+#endif
+
+    if (_power_flags != 0 &&
+        _power_flags != flags &&
         hal.util->get_soft_armed()) {
         // the power status has changed while armed
         flags |= MAV_POWER_STATUS_CHANGED;
     }
+    _accumulated_power_flags |= flags;
     _power_flags = flags;
 }
 #endif // HAL_USE_ADC
-

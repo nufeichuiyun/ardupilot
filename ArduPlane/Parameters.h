@@ -46,7 +46,7 @@ public:
         k_param_avoidance_adsb,
         k_param_landing,
         k_param_NavEKF3,
-        k_param_BoardConfig_CAN,
+        k_param_can_mgr,
         k_param_osd,
 
         // Misc
@@ -62,12 +62,12 @@ public:
         k_param_flap_1_speed,
         k_param_flap_2_percent,
         k_param_flap_2_speed,
-        k_param_reset_switch_chan,
+        k_param_reset_switch_chan, // unused - moved to RC option
         k_param_manual_level, // unused
         k_param_land_pitch_cd,  // unused - moved to AP_Landing
         k_param_ins_old,            // *** Deprecated, remove with next eeprom number change
         k_param_stick_mixing,
-        k_param_reset_mission_chan,
+        k_param_reset_mission_chan, // unused - moved to RC option
         k_param_land_flare_alt, // unused - moved to AP_Landing
         k_param_land_flare_sec, // unused - moved to AP_Landing
         k_param_crosstrack_min_distance, // unused
@@ -79,7 +79,7 @@ public:
         k_param_takeoff_throttle_min_accel,
         k_param_takeoff_heading_hold, // unused
         k_param_level_roll_limit,
-        k_param_hil_servos,
+        k_param_hil_servos_unused,  // unused
         k_param_vtail_output, // unused
         k_param_nav_controller,
         k_param_elevon_output, // unused
@@ -88,18 +88,18 @@ public:
         k_param_scheduler,
         k_param_relay,
         k_param_takeoff_throttle_delay,
-        k_param_skip_gyro_cal, // unused
+        k_param_mode_takeoff, // was skip_gyro_cal
         k_param_auto_fbw_steer,
         k_param_waypoint_max_radius,
         k_param_ground_steer_alt,        
         k_param_ground_steer_dps,
         k_param_rally_limit_km_old, //unused anymore -- just holding this index
-        k_param_hil_err_limit,
+        k_param_hil_err_limit_unused,  // unused
         k_param_sonar_old, // unused
         k_param_log_bitmask,
         k_param_BoardConfig,
         k_param_rssi_range,     // unused, replaced by rssi_ library parameters
-        k_param_flapin_channel,
+        k_param_flapin_channel_old,  // unused, moved to RC_OPTION
         k_param_flaperon_output, // unused
         k_param_gps,
         k_param_autotune_level,
@@ -119,7 +119,7 @@ public:
         k_param_glide_slope_min,
         k_param_stab_pitch_down,
         k_param_terrain_lookahead,
-        k_param_fbwa_tdrag_chan,
+        k_param_fbwa_tdrag_chan, // unused - moved to RC option
         k_param_rangefinder_landing,
         k_param_land_flap_percent,  // unused - moved to AP_Landing
         k_param_takeoff_flap_percent,
@@ -130,7 +130,7 @@ public:
         k_param_optflow,
         k_param_cli_enabled_old, // unused - CLI removed
         k_param_trim_rc_at_start, // unused
-        k_param_hil_mode,
+        k_param_hil_mode_unused,  // unused
         k_param_land_disarm_delay,  // unused - moved to AP_Landing
         k_param_glide_slope_threshold,
         k_param_rudder_only,
@@ -142,7 +142,7 @@ public:
         k_param_rpm_sensor,
         k_param_parachute,
         k_param_arming = 100,
-        k_param_parachute_channel,
+        k_param_parachute_channel, // unused - moved to RC option
         k_param_crash_accel_threshold,
         k_param_override_safety,
         k_param_land_throttle_slewrate, // 104 unused - moved to AP_Landing
@@ -312,7 +312,7 @@ public:
         k_param_loiter_radius,
         k_param_fence_action,
         k_param_fence_total,
-        k_param_fence_channel,
+        k_param_fence_channel, // unused - moved to RC option
         k_param_fence_minalt,
         k_param_fence_maxalt,
 
@@ -345,6 +345,12 @@ public:
         k_param_logger = 253, // Logging Group
 
         // 254,255: reserved
+
+        k_param_vehicle = 257, // vehicle common block of parameters
+        k_param_gcs4,          // stream rates
+        k_param_gcs5,          // stream rates
+        k_param_gcs6,          // stream rates
+        k_param_fence,         // vehicle fence
     };
 
     AP_Int16 format_version;
@@ -354,8 +360,6 @@ public:
     AP_Int16 sysid_this_mav;
     AP_Int16 sysid_my_gcs;
     AP_Int8 telem_delay;
-
-    AP_Float hil_err_limit;
 
     AP_Int8  rtl_autoland;
 
@@ -392,17 +396,6 @@ public:
     AP_Int16 waypoint_max_radius;
     AP_Int16 rtl_radius;
 
-#if GEOFENCE_ENABLED == ENABLED
-    AP_Int8 fence_action;
-    AP_Int8 fence_total;
-    AP_Int8 fence_channel;
-    AP_Int16 fence_minalt;    // meters
-    AP_Int16 fence_maxalt;    // meters
-    AP_Int16 fence_retalt;    // meters
-    AP_Int8 fence_autoenable;
-    AP_Int8 fence_ret_rally;
-#endif
-
     // Fly-by-wire
     //
     AP_Int8 flybywire_elev_reverse;
@@ -415,7 +408,7 @@ public:
     AP_Int8 throttle_fs_enabled;
     AP_Int16 throttle_fs_value;
     AP_Int8 throttle_nudge;
-    AP_Int16 use_reverse_thrust;
+    AP_Int32 use_reverse_thrust;
 
     // Failsafe
     AP_Int8 fs_action_short;
@@ -451,15 +444,9 @@ public:
     AP_Int16 dspoiler_rud_rate;
     AP_Int16 num_resets;
     AP_Int32 log_bitmask;
-    AP_Int8 reset_switch_chan;
-    AP_Int8 reset_mission_chan;
     AP_Int32 RTL_altitude_cm;
     AP_Int16 pitch_trim_cd;
     AP_Int16 FBWB_min_altitude_cm;
-    AP_Int8  hil_servos;
-#if HIL_SUPPORT
-    AP_Int8  hil_mode;
-#endif
 
     AP_Int8 flap_1_percent;
     AP_Int8 flap_1_speed;
@@ -476,14 +463,12 @@ public:
     AP_Int8 takeoff_throttle_slewrate;
     AP_Float takeoff_pitch_limit_reduction_sec;
     AP_Int8 level_roll_limit;
-    AP_Int8 flapin_channel;
 #if AP_TERRAIN_AVAILABLE
-    AP_Int8 terrain_follow;
+    AP_Int32 terrain_follow;
     AP_Int16 terrain_lookahead;
 #endif
     AP_Int16 glide_slope_min;
     AP_Float glide_slope_threshold;
-    AP_Int8 fbwa_tdrag_chan;
     AP_Int8 rangefinder_landing;
     AP_Int8 flap_slewrate;
 #if HAL_WITH_IO_MCU
@@ -491,7 +476,6 @@ public:
     AP_Int8 override_safety;
 #endif
     AP_Int16 gcs_pid_mask;
-    AP_Int8 parachute_channel;
 };
 
 /*
@@ -505,7 +489,7 @@ public:
     static const struct AP_Param::GroupInfo var_info[];
 
     // button reporting library
-    AP_Button button;
+    AP_Button *button_ptr;
 
 #if STATS_ENABLED == ENABLED
     // vehicle statistics
@@ -524,7 +508,7 @@ public:
     // whether to enforce acceptance of packets only from sysid_my_gcs
     AP_Int8 sysid_enforce;
 
-#if SOARING_ENABLED == ENABLED
+#if HAL_SOARING_ENABLED
     // ArduSoar parameters
     SoaringController soaring_controller;
 #endif
@@ -564,6 +548,27 @@ public:
     AP_Int8 crow_flap_weight_inner;
     AP_Int8 crow_flap_options;
     AP_Int8 crow_flap_aileron_matching;
+
+    // Forward throttle battery voltage compenstaion
+    AP_Float fwd_thr_batt_voltage_max;
+    AP_Float fwd_thr_batt_voltage_min;
+    AP_Int8  fwd_thr_batt_idx;
+
+#if HAL_EFI_ENABLED
+    // EFI Engine Monitor
+    AP_EFI efi;
+#endif
+
+#if OFFBOARD_GUIDED == ENABLED
+    // guided yaw heading PID
+    AC_PID guidedHeading{5000.0,  0.0,   0.0, 0 ,  10.0,   5.0,  5.0 ,  5.0  , 0.2};
+#endif
+
+
+    AP_Float        fs_ekf_thresh;
+
+    // min initial climb in RTL
+    AP_Int16        rtl_climb_min;
 };
 
 extern const AP_Param::Info var_info[];

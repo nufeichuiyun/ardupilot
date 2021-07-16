@@ -32,7 +32,7 @@ public:
     void set_flying(bool b);
 
     // accessor for is_flying
-    bool get_is_flying(void) {
+    bool get_is_flying(void) const {
         return _flying_ms != 0;
     }
 
@@ -67,7 +67,7 @@ private:
 
     void update_flighttime();
     void update_runtime();
-
+    HAL_Semaphore sem;
 };
 
 namespace AP {

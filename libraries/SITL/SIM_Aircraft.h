@@ -22,12 +22,15 @@
 
 #include "SITL.h"
 #include "SITL_Input.h"
-#include <AP_Terrain/AP_Terrain.h>
 #include "SIM_Sprayer.h"
 #include "SIM_Gripper_Servo.h"
 #include "SIM_Gripper_EPM.h"
 #include "SIM_Parachute.h"
 #include "SIM_Precland.h"
+#include "SIM_RichenPower.h"
+#include "SIM_I2C.h"
+#include "SIM_Buzzer.h"
+#include "SIM_Battery.h"
 #include <Filter/Filter.h>
 
 namespace SITL {
@@ -46,6 +49,7 @@ public:
       set simulation speedup
      */
     void set_speedup(float speedup);
+    float get_speedup() const { return target_speedup; }
 
     /*
       set instance number
@@ -83,6 +87,16 @@ public:
     // get frame rate of model in Hz
     float get_rate_hz(void) const { return rate_hz; }
 
+    // get number of motors for model
+    uint16_t get_num_motors() const {
+        return num_motors;
+    }
+
+    // get motor offset for model
+    virtual uint16_t get_motors_offset() const {
+        return 0;
+    }
+
     const Vector3f &get_gyro(void) const {
         return gyro;
     }
@@ -112,7 +126,11 @@ public:
 
     const Location &get_location() const { return location; }
 
-    const Vector3f &get_position() const { return position; }
+    // get position relative to home
+    Vector3d get_position_relhome() const;
+
+    // distance the rangefinder is perceiving
+    float rangefinder_range() const;
 
     void get_attitude(Quaternion &attitude) const {
         attitude.from_rotation_matrix(dcm);
@@ -121,14 +139,23 @@ public:
     const Location &get_home() const { return home; }
     float get_home_yaw() const { return home_yaw; }
 
+    void set_buzzer(Buzzer *_buzzer) { buzzer = _buzzer; }
     void set_sprayer(Sprayer *_sprayer) { sprayer = _sprayer; }
     void set_parachute(Parachute *_parachute) { parachute = _parachute; }
+    void set_richenpower(RichenPower *_richenpower) { richenpower = _richenpower; }
+    void set_ie24(IntelligentEnergy24 *_ie24) { ie24 = _ie24; }
     void set_gripper_servo(Gripper_Servo *_gripper) { gripper = _gripper; }
     void set_gripper_epm(Gripper_EPM *_gripper_epm) { gripper_epm = _gripper_epm; }
     void set_precland(SIM_Precland *_precland);
+    void set_i2c(class I2C *_i2c) { i2c = _i2c; }
+
+    float get_battery_voltage() const { return battery_voltage; }
 
 protected:
     SITL *sitl;
+    // origin of position vector
+    Location origin;
+    // home location
     Location home;
     bool home_is_set;
     Location location;
@@ -138,49 +165,65 @@ protected:
     float frame_height;
     Matrix3f dcm;                        // rotation matrix, APM conventions, from body to earth
     Vector3f gyro;                       // rad/s
-    Vector3f gyro_prev;                  // rad/s
-    Vector3f ang_accel;                  // rad/s/s
     Vector3f velocity_ef;                // m/s, earth frame
     Vector3f wind_ef;                    // m/s, earth frame
     Vector3f velocity_air_ef;            // velocity relative to airmass, earth frame
     Vector3f velocity_air_bf;            // velocity relative to airmass, body frame
-    Vector3f position;                   // meters, NED from origin
+    Vector3d position;                   // meters, NED from origin
     float mass;                          // kg
-    float external_payload_mass = 0.0f;  // kg
-    Vector3f accel_body;                 // m/s/s NED, body frame
+    float external_payload_mass;         // kg
+    Vector3f accel_body{0.0f, 0.0f, -GRAVITY_MSS}; // m/s/s NED, body frame
     float airspeed;                      // m/s, apparent airspeed
     float airspeed_pitot;                // m/s, apparent airspeed, as seen by fwd pitot tube
     float battery_voltage = -1.0f;
-    float battery_current = 0.0f;
-    float rpm1 = 0;
-    float rpm2 = 0;
-    uint8_t rcin_chan_count = 0;
-    float rcin[8];
-    float range = -1.0f;                 // rangefinder detection in m
+    float battery_current;
+    float local_ground_level;            // ground level at local position
+    bool lock_step_scheduled;
+    uint32_t last_one_hz_ms;
+
+    // battery model
+    Battery battery;
+
+    uint8_t num_motors = 1;
+    uint8_t vtol_motor_start;
+    float rpm[12];
+    uint8_t rcin_chan_count;
+    float rcin[12];
+    float range = -1.0f;                 // externally supplied rangefinder value, assumed to have been corrected for vehicle attitude
 
     struct {
         // data from simulated laser scanner, if available
         struct vector3f_array points;
         struct float_array ranges;
     } scanner;
-    
+
+    // Rangefinder
+    float rangefinder_m[RANGEFINDER_MAX_INSTANCES];
+
+    // Windvane apparent wind
+    struct {
+        float speed;
+        float direction;
+    } wind_vane_apparent;
+
     // Wind Turbulence simulated Data
-    float turbulence_azimuth = 0.0f;
-    float turbulence_horizontal_speed = 0.0f;  // m/s
-    float turbulence_vertical_speed = 0.0f;    // m/s
+    float turbulence_azimuth;
+    float turbulence_horizontal_speed;  // m/s
+    float turbulence_vertical_speed;    // m/s
 
     Vector3f mag_bf;  // local earth magnetic field vector in Gauss, earth frame
 
     uint64_t time_now_us;
 
-    const float gyro_noise;
-    const float accel_noise;
-    float rate_hz;
-    float achieved_rate_hz;
+    const float gyro_noise = radians(0.1f);
+    const float accel_noise = 0.3f;
+    float rate_hz = 1200.0f;
     float target_speedup;
     uint64_t frame_time_us;
-    float scaled_frame_time_us;
     uint64_t last_wall_time_us;
+    uint32_t last_fps_report_ms;
+    int64_t sleep_debt_us;
+    uint32_t last_frame_count;
     uint8_t instance;
     const char *autotest_dir;
     const char *frame;
@@ -190,6 +233,10 @@ protected:
 
     // allow for AHRS_ORIENTATION
     AP_Int8 *ahrs_orientation;
+    enum Rotation last_imu_rotation;
+    AP_Float* custom_roll;
+    AP_Float* custom_pitch;
+    AP_Float* custom_yaw;
 
     enum GroundBehaviour {
         GROUND_BEHAVIOR_NONE = 0,
@@ -200,7 +247,6 @@ protected:
 
     bool use_smoothing;
 
-    AP_Terrain *terrain;
     float ground_height_difference() const;
 
     virtual bool on_ground() const;
@@ -230,7 +276,7 @@ protected:
     /* add noise based on throttle level (from 0..1) */
     void add_noise(float throttle);
 
-    /* return wall clock time in microseconds since 1970 */
+    /* return a monotonic wall clock time in microseconds */
     uint64_t get_wall_time_us(void) const;
 
     // update attitude and relative position
@@ -253,30 +299,40 @@ protected:
     void add_shove_forces(Vector3f &rot_accel, Vector3f &body_accel);
     void add_twist_forces(Vector3f &rot_accel);
 
+    // get local thermal updraft
+    float get_local_updraft(const Vector3d &currentPos);
+
 private:
-    uint64_t last_time_us = 0;
-    uint32_t frame_counter = 0;
+    uint64_t last_time_us;
+    uint32_t frame_counter;
     uint32_t last_ground_contact_ms;
-    const uint32_t min_sleep_time;
+#if defined(__CYGWIN__) || defined(__CYGWIN64__)
+    const uint32_t min_sleep_time{20000};
+#else
+    const uint32_t min_sleep_time{5000};
+#endif
 
     struct {
-        bool enabled;
         Vector3f accel_body;
         Vector3f gyro;
         Matrix3f rotation_b2e;
-        Vector3f position;
+        Vector3d position;
         Vector3f velocity_ef;
         uint64_t last_update_us;
         Location location;
     } smoothing;
 
-    LowPassFilterFloat servo_filter[4];
+    LowPassFilterFloat servo_filter[5];
 
+    Buzzer *buzzer;
     Sprayer *sprayer;
     Gripper_Servo *gripper;
     Gripper_EPM *gripper_epm;
     Parachute *parachute;
+    RichenPower *richenpower;
+    IntelligentEnergy24 *ie24;
     SIM_Precland *precland;
+    class I2C *i2c;
 };
 
 } // namespace SITL

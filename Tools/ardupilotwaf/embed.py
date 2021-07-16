@@ -12,13 +12,12 @@ import os, sys, tempfile, gzip
 def write_encode(out, s):
     out.write(s.encode())
 
-def embed_file(out, f, idx, embedded_name):
+def embed_file(out, f, idx, embedded_name, uncompressed):
     '''embed one file'''
     try:
         contents = open(f,'rb').read()
     except Exception:
-        print("Failed to embed %s" % f)
-        return False
+        raise Exception("Failed to embed %s" % f)
 
     pad = 0
     if embedded_name.endswith("bootloader.bin"):
@@ -27,17 +26,32 @@ def embed_file(out, f, idx, embedded_name):
         blen = len(contents)
         pad = (32 - (blen % 32)) % 32
         if pad != 0:
-            contents += bytes([0xff]*pad)
-            print("Padded %u bytes for %s" % (pad, embedded_name))
+            if sys.version_info[0] >= 3:
+                contents += bytes([0xff]*pad)
+            else:
+                for i in range(pad):
+                    contents += bytes(chr(0xff))
+            print("Padded %u bytes for %s to %u" % (pad, embedded_name, len(contents)))
 
+    crc = crc32(bytearray(contents))
     write_encode(out, 'static const uint8_t ap_romfs_%u[] = {' % idx)
 
-    # compress it
     compressed = tempfile.NamedTemporaryFile()
-    f = open(compressed.name, "wb")
-    with gzip.GzipFile(fileobj=f, mode='wb', filename='', compresslevel=9, mtime=0) as g:
-        g.write(contents)
-    f.close()
+    if uncompressed:
+        # ensure nul termination
+        if sys.version_info[0] >= 3:
+            nul = bytearray(0)
+        else:
+            nul = chr(0)
+        if contents[-1] != nul:
+            contents += nul
+        compressed.write(contents)
+    else:
+        # compress it
+        f = open(compressed.name, "wb")
+        with gzip.GzipFile(fileobj=f, mode='wb', filename='', compresslevel=9, mtime=0) as g:
+            g.write(contents)
+        f.close()
 
     compressed.seek(0)
     b = bytearray(compressed.read())
@@ -46,25 +60,45 @@ def embed_file(out, f, idx, embedded_name):
     for c in b:
         write_encode(out, '%u,' % c)
     write_encode(out, '};\n\n');
-    return True
+    return crc
 
-def create_embedded_h(filename, files):
+def crc32(bytes, crc=0):
+    '''crc32 equivalent to crc32_small() from AP_Math/crc.cpp'''
+    for byte in bytes:
+        crc ^= byte
+        for i in range(8):
+            mask = (-(crc & 1)) & 0xFFFFFFFF
+            crc >>= 1
+            crc ^= (0xEDB88320 & mask)
+    return crc
+
+def create_embedded_h(filename, files, uncompressed=False):
     '''create a ap_romfs_embedded.h file'''
 
     out = open(filename, "wb")
     write_encode(out, '''// generated embedded files for AP_ROMFS\n\n''')
 
+    # remove duplicates and sort
+    files = sorted(list(set(files)))
+    crc = {}
     for i in range(len(files)):
         (name, filename) = files[i]
-        if not embed_file(out, filename, i, name):
+        try:
+            crc[filename] = embed_file(out, filename, i, name, uncompressed)
+        except Exception as e:
+            print(e)
             return False
 
     write_encode(out, '''const AP_ROMFS::embedded_file AP_ROMFS::files[] = {\n''')
 
     for i in range(len(files)):
         (name, filename) = files[i]
-        print(("Embedding file %s:%s" % (name, filename)).encode())
-        write_encode(out, '{ "%s", sizeof(ap_romfs_%u), ap_romfs_%u },\n' % (name, i, i))
+        if uncompressed:
+            ustr = ' (uncompressed)'
+        else:
+            ustr = ''
+        print("Embedding file %s:%s%s" % (name, filename, ustr))
+        write_encode(out, '{ "%s", sizeof(ap_romfs_%u), 0x%08x, ap_romfs_%u },\n' % (name, i, crc[filename], i))
     write_encode(out, '};\n')
     out.close()
     return True

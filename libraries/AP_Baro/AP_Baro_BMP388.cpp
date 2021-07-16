@@ -76,8 +76,6 @@ bool AP_Baro_BMP388::init()
     }
     WITH_SEMAPHORE(dev->get_semaphore());
 
-    has_sample = false;
-
     dev->set_speed(AP_HAL::Device::SPEED_HIGH);
 
     // setup to allow reads on SPI
@@ -89,15 +87,15 @@ bool AP_Baro_BMP388::init()
     dev->write_register(BMP388_REG_PWR_CTRL, 0x33, true);
     
     uint8_t whoami;
-    if (!dev->read_registers(BMP388_REG_ID, &whoami, 1)  ||
+    if (!read_registers(BMP388_REG_ID, &whoami, 1)  ||
         whoami != BMP388_ID) {
         // not a BMP388
         return false;
     }
 
     // read the calibration data
-    dev->read_registers(BMP388_REG_CAL_P, (uint8_t *)&calib_p, sizeof(calib_p));
-    dev->read_registers(BMP388_REG_CAL_T, (uint8_t *)&calib_t, sizeof(calib_t));
+    read_registers(BMP388_REG_CAL_P, (uint8_t *)&calib_p, sizeof(calib_p));
+    read_registers(BMP388_REG_CAL_T, (uint8_t *)&calib_t, sizeof(calib_t));
 
     scale_calibration_data();
 
@@ -107,6 +105,9 @@ bool AP_Baro_BMP388::init()
     dev->write_register(BMP388_REG_PWR_CTRL, 0x33, true);
 
     instance = _frontend.register_sensor();
+
+    dev->set_device_type(DEVTYPE_BARO_BMP388);
+    set_bus_id(instance, dev->get_bus_id());
 
     // request 50Hz update
     dev->register_periodic_callback(20 * AP_USEC_PER_MSEC, FUNCTOR_BIND_MEMBER(&AP_Baro_BMP388::timer, void));
@@ -121,7 +122,7 @@ void AP_Baro_BMP388::timer(void)
 {
     uint8_t buf[7];
 
-    if (!dev->read_registers(BMP388_REG_STATUS, buf, sizeof(buf))) {
+    if (!read_registers(BMP388_REG_STATUS, buf, sizeof(buf))) {
         return;
     }
     const uint8_t status = buf[0];
@@ -142,12 +143,16 @@ void AP_Baro_BMP388::update(void)
 {
     WITH_SEMAPHORE(_sem);
 
-    if (!has_sample) {
+    if (pressure_count == 0) {
         return;
     }
 
-    _copy_to_frontend(instance, pressure, temperature);
-    has_sample = false;
+    _copy_to_frontend(instance,
+                      pressure_sum/pressure_count,
+                      temperature);
+
+    pressure_sum = 0;
+    pressure_count = 0;
 }
 
 /*
@@ -208,7 +213,28 @@ void AP_Baro_BMP388::update_pressure(uint32_t data)
     float press = partial_out1 + partial_out2 + partial4;
 
     WITH_SEMAPHORE(_sem);
-    
-    pressure = press;
-    has_sample = true;
+
+    pressure_sum += press;
+    pressure_count++;
+}
+
+/*
+  read registers, special SPI handling needed
+*/
+bool AP_Baro_BMP388::read_registers(uint8_t reg, uint8_t *data, uint8_t len)
+{
+    // when on I2C we just read normally
+    if (dev->bus_type() != AP_HAL::Device::BUS_TYPE_SPI) {
+        return dev->read_registers(reg, data, len);
+    }
+    // for SPI we need to discard the first returned byte. See
+    // datasheet for explanation
+    uint8_t b[len+2];
+    b[0] = reg | 0x80;
+    memset(&b[1], 0, len+1);
+    if (!dev->transfer(b, len+2, b, len+2)) {
+        return false;
+    }
+    memcpy(data, &b[2], len);
+    return true;
 }

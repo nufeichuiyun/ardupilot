@@ -31,9 +31,18 @@ void show_stack_usage(void);
 // allocation functions in malloc.c    
 size_t mem_available(void);
 void *malloc_dma(size_t size);
-void *malloc_sdcard_dma(size_t size);
+void *malloc_axi_sram(size_t size);
 void *malloc_fastmem(size_t size);
 thread_t *thread_create_alloc(size_t size, const char *name, tprio_t prio, tfunc_t pf, void *arg);
+
+struct memory_region {
+    void *address;
+    uint32_t size;
+    uint32_t flags;
+};
+#if CH_CFG_USE_HEAP == TRUE
+uint8_t malloc_get_heaps(memory_heap_t **_heaps, const struct memory_region **regions);
+#endif
 
 // flush all dcache
 void memory_flush_all(void);
@@ -46,7 +55,10 @@ uint64_t stm32_get_utc_usec(void);
 uint32_t get_fattime(void);
 
 // one-time programmable area
-#if defined(STM32F4)
+#if defined(FLASH_OTP_BASE)
+#define OTP_BASE FLASH_OTP_BASE
+#define OTP_SIZE (FLASH_OTP_END-FLASH_OTP_BASE)
+#elif defined(STM32F4)
 #define OTP_BASE 0x1fff7800
 #define OTP_SIZE 512
 #elif defined(STM32F7)
@@ -58,7 +70,8 @@ enum rtc_boot_magic {
     RTC_BOOT_OFF  = 0,
     RTC_BOOT_HOLD = 0xb0070001,
     RTC_BOOT_FAST = 0xb0070002,
-    RTC_BOOT_CANBL = 0xb0080000 // ORd with 8 bit local node ID
+    RTC_BOOT_CANBL = 0xb0080000, // ORd with 8 bit local node ID
+    RTC_BOOT_FWOK = 0xb0093a26 // indicates FW ran for 30s
 };
     
 // see if RTC registers is setup for a fast reboot
@@ -77,8 +90,16 @@ void malloc_init(void);
   read mode of a pin. This allows a pin config to be read, changed and
   then written back
  */
-#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4)
+#if defined(STM32F7) || defined(STM32H7) || defined(STM32F4) || defined(STM32F3) || defined(STM32G4)
 iomode_t palReadLineMode(ioline_t line);
+
+enum PalPushPull {
+    PAL_PUSHPULL_NOPULL=0,
+    PAL_PUSHPULL_PULLUP=1,
+    PAL_PUSHPULL_PULLDOWN=2
+};
+
+void palLineSetPushPull(ioline_t line, enum PalPushPull pp);
 #endif
 
 // set n RTC backup registers starting at given idx
@@ -89,6 +110,29 @@ void get_rtc_backup(uint8_t idx, uint32_t *v, uint8_t n);
 
 void stm32_cacheBufferInvalidate(const void *p, size_t size);
 void stm32_cacheBufferFlush(const void *p, size_t size);
+
+#ifdef HAL_GPIO_PIN_FAULT
+// printf for fault handlers
+void fault_printf(const char *fmt, ...);
+#endif
+
+// halt hook for printing panic message
+void system_halt_hook(void);
+
+// hook for stack overflow
+void stack_overflow(thread_t *tp);
+
+/*
+  check how much stack is free given a stack base. Assumes the fill
+  byte is 0x55
+ */
+uint32_t stack_free(void *stack_base);
+
+// allow stack view code to show free ISR stack
+extern uint32_t __main_stack_base__;
+extern uint32_t __main_stack_end__;
+extern uint32_t __main_thread_stack_base__;
+extern uint32_t __main_thread_stack_end__;
 
 #ifdef __cplusplus
 }

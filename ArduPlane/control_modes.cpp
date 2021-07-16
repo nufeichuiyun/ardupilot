@@ -41,8 +41,11 @@ Mode *Plane::mode_from_mode_num(const enum Mode::Number num)
         ret = &mode_loiter;
         break;
     case Mode::Number::AVOID_ADSB:
+#if HAL_ADSB_ENABLED
         ret = &mode_avoidADSB;
         break;
+#endif
+    // if ADSB is not compiled in then fallthrough to guided
     case Mode::Number::GUIDED:
         ret = &mode_guided;
         break;
@@ -70,6 +73,14 @@ Mode *Plane::mode_from_mode_num(const enum Mode::Number num)
     case Mode::Number::QAUTOTUNE:
         ret = &mode_qautotune;
         break;
+    case Mode::Number::TAKEOFF:
+        ret = &mode_takeoff;
+        break;
+    case Mode::Number::THERMAL:
+#if HAL_SOARING_ENABLED
+        ret = &mode_thermal;
+#endif
+        break;
     }
     return ret;
 }
@@ -94,15 +105,7 @@ void Plane::read_control_switch()
         return;
     }
 
-    // we look for changes in the switch position. If the
-    // RST_SWITCH_CH parameter is set, then it is a switch that can be
-    // used to force re-reading of the control switch. This is useful
-    // when returning to the previous mode after a failsafe or fence
-    // breach. This channel is best used on a momentary switch (such
-    // as a spring loaded trainer switch).
-    if (oldSwitchPosition != switchPosition ||
-        (g.reset_switch_chan != 0 &&
-         RC_Channels::get_radio_in(g.reset_switch_chan-1) > RESET_SWITCH_CHAN_PWM)) {
+    if (oldSwitchPosition != switchPosition) {
 
         if (switch_debouncer == false) {
             // this ensures that mode switches only happen if the
@@ -113,29 +116,16 @@ void Plane::read_control_switch()
             return;
         }
 
-        set_mode_by_number((enum Mode::Number)flight_modes[switchPosition].get(), MODE_REASON_TX_COMMAND);
+        set_mode_by_number((enum Mode::Number)flight_modes[switchPosition].get(), ModeReason::RC_COMMAND);
 
         oldSwitchPosition = switchPosition;
     }
 
-    if (g.reset_mission_chan != 0 &&
-        RC_Channels::get_radio_in(g.reset_mission_chan-1) > RESET_SWITCH_CHAN_PWM) {
-        mission.start();
-        prev_WP_loc = current_loc;
-    }
-
     switch_debouncer = false;
 
-#if PARACHUTE == ENABLED
-    if (g.parachute_channel > 0) {
-        if (RC_Channels::get_radio_in(g.parachute_channel-1) >= 1700) {
-            parachute_manual_release();
-        }
-    }
-#endif
 }
 
-uint8_t Plane::readSwitch(void)
+uint8_t Plane::readSwitch(void) const
 {
     uint16_t pulsewidth = RC_Channels::get_radio_in(g.flight_mode_channel - 1);
     if (pulsewidth <= 900 || pulsewidth >= 2200) return 255;            // This is an error condition

@@ -19,13 +19,31 @@
 #define AP_BATT_MONITOR_RES_EST_TC_1        0.5f
 #define AP_BATT_MONITOR_RES_EST_TC_2        0.1f
 
+#if !HAL_MINIMIZE_FEATURES && BOARD_FLASH_SIZE > 1024
+#define AP_BATT_MONITOR_CELLS_MAX           14
+#else
+#define AP_BATT_MONITOR_CELLS_MAX           12
+#endif
+
+#ifndef HAL_BATTMON_SMBUS_ENABLE
+#define HAL_BATTMON_SMBUS_ENABLE 1
+#endif
+
+#ifndef HAL_BATTMON_FUEL_ENABLE
+#define HAL_BATTMON_FUEL_ENABLE 1
+#endif
+
 // declare backend class
 class AP_BattMonitor_Backend;
 class AP_BattMonitor_Analog;
 class AP_BattMonitor_SMBus;
 class AP_BattMonitor_SMBus_Solo;
+class AP_BattMonitor_SMBus_Generic;
 class AP_BattMonitor_SMBus_Maxell;
+class AP_BattMonitor_SMBus_Rotoye;
 class AP_BattMonitor_UAVCAN;
+class AP_BattMonitor_Generator;
+class AP_BattMonitor_MPPT_PacketDigital;
 
 class AP_BattMonitor
 {
@@ -33,19 +51,46 @@ class AP_BattMonitor
     friend class AP_BattMonitor_Analog;
     friend class AP_BattMonitor_SMBus;
     friend class AP_BattMonitor_SMBus_Solo;
+    friend class AP_BattMonitor_SMBus_Generic;
     friend class AP_BattMonitor_SMBus_Maxell;
+    friend class AP_BattMonitor_SMBus_Rotoye;
     friend class AP_BattMonitor_UAVCAN;
     friend class AP_BattMonitor_Sum;
     friend class AP_BattMonitor_FuelFlow;
     friend class AP_BattMonitor_FuelLevel_PWM;
+    friend class AP_BattMonitor_Generator;
+    friend class AP_BattMonitor_MPPT_PacketDigital;
 
 public:
 
     // battery failsafes must be defined in levels of severity so that vehicles wont fall backwards
-    enum BatteryFailsafe {
-        BatteryFailsafe_None = 0,
-        BatteryFailsafe_Low,
-        BatteryFailsafe_Critical
+    enum class Failsafe : uint8_t {
+        None = 0,
+        Low,
+        Critical
+    };
+
+    // Battery monitor driver types
+    enum class Type {
+        NONE                       = 0,
+        ANALOG_VOLTAGE_ONLY        = 3,
+        ANALOG_VOLTAGE_AND_CURRENT = 4,
+        SOLO                       = 5,
+        BEBOP                      = 6,
+        SMBus_Generic              = 7,
+        UAVCAN_BatteryInfo         = 8,
+        BLHeliESC                  = 9,
+        Sum                        = 10,
+        FuelFlow                   = 11,
+        FuelLevel_PWM              = 12,
+        SUI3                       = 13,
+        SUI6                       = 14,
+        NeoDesign                  = 15,
+        MAXELL                     = 16,
+        GENERATOR_ELEC             = 17,
+        GENERATOR_FUEL             = 18,
+        Rotoye                     = 19,
+        MPPT_PacketDigital         = 20,
     };
 
     FUNCTOR_TYPEDEF(battery_failsafe_handler_fn_t, void, const char *, const int8_t);
@@ -60,8 +105,9 @@ public:
         return _singleton;
     }
 
+    // cell voltages in millivolts
     struct cells {
-        uint16_t cells[MAVLINK_MSG_BATTERY_STATUS_FIELD_VOLTAGES_LEN];
+        uint16_t cells[AP_BATT_MONITOR_CELLS_MAX];
     };
 
     // The BattMonitor_State structure is filled in by the backend driver
@@ -78,7 +124,7 @@ public:
         uint32_t    temperature_time;          // timestamp of the last received temperature message
         float       voltage_resting_estimate;  // voltage with sag removed based on current and resistance estimate in Volt
         float       resistance;                // resistance, in Ohms, calculated by comparing resting voltage vs in flight voltage
-        BatteryFailsafe failsafe;              // stage failsafe the battery is in
+        Failsafe failsafe;                     // stage failsafe the battery is in
         bool        healthy;                   // battery monitor is communicating correctly
         bool        is_powering_off;           // true when power button commands power off
         bool        powerOffNotified;          // only send powering off notification once
@@ -97,7 +143,7 @@ public:
     bool healthy(uint8_t instance) const;
     bool healthy() const { return healthy(AP_BATT_PRIMARY_INSTANCE); }
 
-    /// voltage - returns battery voltage in millivolts
+    /// voltage - returns battery voltage in volts
     float voltage(uint8_t instance) const;
     float voltage() const { return voltage(AP_BATT_PRIMARY_INSTANCE); }
 
@@ -130,22 +176,33 @@ public:
     int8_t get_highest_failsafe_priority(void) const { return _highest_failsafe_priority; };
 
     /// get_type - returns battery monitor type
-    enum AP_BattMonitor_Params::BattMonitor_Type get_type() const { return get_type(AP_BATT_PRIMARY_INSTANCE); }
-    enum AP_BattMonitor_Params::BattMonitor_Type get_type(uint8_t instance) const { return _params[instance].type(); }
+    enum Type get_type() const { return get_type(AP_BATT_PRIMARY_INSTANCE); }
+    enum Type get_type(uint8_t instance) const {
+        return (Type)_params[instance]._type.get();
+    }
+
+    /// get_serial_number - returns battery serial number
+    int32_t get_serial_number() const { return get_serial_number(AP_BATT_PRIMARY_INSTANCE); }
+    int32_t get_serial_number(uint8_t instance) const {
+        return _params[instance]._serial_number;
+    }
 
     /// true when (voltage * current) > watt_max
     bool overpower_detected() const;
     bool overpower_detected(uint8_t instance) const;
 
-    // cell voltages
-    bool has_cell_voltages() { return has_cell_voltages(AP_BATT_PRIMARY_INSTANCE); }
+    // cell voltages in millivolts
+    bool has_cell_voltages() const { return has_cell_voltages(AP_BATT_PRIMARY_INSTANCE); }
     bool has_cell_voltages(const uint8_t instance) const;
-    const cells & get_cell_voltages() const { return get_cell_voltages(AP_BATT_PRIMARY_INSTANCE); }
-    const cells & get_cell_voltages(const uint8_t instance) const;
+    const cells &get_cell_voltages() const { return get_cell_voltages(AP_BATT_PRIMARY_INSTANCE); }
+    const cells &get_cell_voltages(const uint8_t instance) const;
 
     // temperature
-    bool get_temperature(float &temperature) const { return get_temperature(temperature, AP_BATT_PRIMARY_INSTANCE); };
+    bool get_temperature(float &temperature) const { return get_temperature(temperature, AP_BATT_PRIMARY_INSTANCE); }
     bool get_temperature(float &temperature, const uint8_t instance) const;
+
+    // cycle count
+    bool get_cycle_count(uint8_t instance, uint16_t &cycles) const;
 
     // get battery resistance estimate in ohms
     float get_resistance() const { return get_resistance(AP_BATT_PRIMARY_INSTANCE); }
@@ -158,7 +215,11 @@ public:
     void checkPoweringOff(void);
 
     // reset battery remaining percentage
-    bool reset_remaining(uint16_t battery_mask, float percentage);
+    bool reset_remaining_mask(uint16_t battery_mask, float percentage);
+    bool reset_remaining(uint8_t instance, float percentage) { return reset_remaining_mask(1U<<instance, percentage);}
+
+    // Returns mavlink charge state
+    MAV_BATTERY_CHARGE_STATE get_mavlink_charge_state(const uint8_t instance) const;
 
     static const struct AP_Param::GroupInfo var_info[];
 
@@ -178,7 +239,7 @@ private:
     void convert_params(void);
 
     /// returns the failsafe state of the battery
-    BatteryFailsafe check_failsafe(const uint8_t instance);
+    Failsafe check_failsafe(const uint8_t instance);
     void check_failsafes(void); // checks all batteries failsafes
 
     battery_failsafe_handler_fn_t _battery_failsafe_handler_fn;

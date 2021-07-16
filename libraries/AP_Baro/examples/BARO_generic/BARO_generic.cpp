@@ -21,16 +21,25 @@
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_HAL/AP_HAL.h>
 #include <GCS_MAVLink/GCS_Dummy.h>
+#include <AP_ExternalAHRS/AP_ExternalAHRS.h>
 
 
 const AP_HAL::HAL &hal = AP_HAL::get_HAL();
 
 // create barometer object
 static AP_Baro barometer;
+#if HAL_EXTERNAL_AHRS_ENABLED
+ static AP_ExternalAHRS eAHRS;
+#endif // HAL_EXTERNAL_AHRS_ENABLED
 
 static uint32_t timer;
 static uint8_t counter;
 static AP_BoardConfig board_config;
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#include <SITL/SITL.h>
+SITL::SITL sitl;
+#endif
 
 void setup();
 void loop();

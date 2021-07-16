@@ -75,7 +75,7 @@ void AP_Tuning::check_selector_switch(void)
         return;
     }
     uint16_t selector_in = selchan->get_radio_in();
-    if (selector_in >= 1700) {
+    if (selector_in >= RC_Channel::AUX_PWM_TRIGGER_HIGH) {
         // high selector
         if (selector_start_ms == 0) {
             selector_start_ms = AP_HAL::millis();
@@ -90,7 +90,7 @@ void AP_Tuning::check_selector_switch(void)
             changed = false;
             need_revert = 0;
         }
-    } else if (selector_in <= 1300) {
+    } else if (selector_in <= RC_Channel::AUX_PWM_TRIGGER_LOW) {
         // low selector
         if (selector_start_ms != 0) {
             uint32_t hold_time = AP_HAL::millis() - selector_start_ms;
@@ -233,7 +233,14 @@ void AP_Tuning::check_input(uint8_t flightmode)
  */
 void AP_Tuning::Log_Write_Parameter_Tuning(float value)
 {
-    AP::logger().Write("PTUN", "TimeUS,Set,Parm,Value,CenterValue", "QBBff",
+// @LoggerMessage: PRTN
+// @Description: Plane Parameter Tuning data
+// @Field: TimeUS: Time since system startup
+// @Field: Set: Parameter set being tuned
+// @Field: Parm: Parameter being tuned
+// @Field: Value: Current parameter value
+// @Field: CenterValue: Center value (startpoint of current modifications) of parameter being tuned
+    AP::logger().Write("PRTN", "TimeUS,Set,Parm,Value,CenterValue", "QBBff",
                                            AP_HAL::micros64(),
                                            parmset,
                                            current_parm,

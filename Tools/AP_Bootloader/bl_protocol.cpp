@@ -41,6 +41,7 @@
 
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
+#include <AP_Math/crc.h>
 #include "ch.h"
 #include "hal.h"
 #include "hwdef.h"
@@ -48,6 +49,7 @@
 #include "bl_protocol.h"
 #include "support.h"
 #include "can.h"
+#include <AP_HAL_ChibiOS/hwdef/common/watchdog.h>
 
 // #pragma GCC optimize("O0")
 
@@ -113,6 +115,8 @@
 #define PROTO_DEVICE_BOARD_REV	3	// board revision
 #define PROTO_DEVICE_FW_SIZE	4	// size of flashable area
 #define PROTO_DEVICE_VEC_AREA	5	// contents of reserved vectors 7-10
+// all except PROTO_DEVICE_VEC_AREA and PROTO_DEVICE_BOARD_REV should be done
+#define CHECK_GET_DEVICE_FINISHED(x)   ((x & (0xB)) == 0xB)
 
 // interrupt vector table for STM32
 #define SCB_VTOR 0xE000ED08
@@ -201,7 +205,7 @@ do_jump(uint32_t stacktop, uint32_t entrypoint)
         : : "r"(stacktop), "r"(entrypoint) :);
 }
 
-#define APP_START_ADDRESS (FLASH_LOAD_ADDRESS + FLASH_BOOTLOADER_LOAD_KB*1024U)
+#define APP_START_ADDRESS (FLASH_LOAD_ADDRESS + (FLASH_BOOTLOADER_LOAD_KB + APP_START_OFFSET_KB)*1024U)
 
 void
 jump_to_app()
@@ -231,6 +235,18 @@ jump_to_app()
         return;
     }
 
+#if HAL_USE_CAN == TRUE ||  HAL_NUM_CAN_IFACES
+    // for CAN firmware we start the watchdog before we run the
+    // application code, to ensure we catch a bad firmare. If we get a
+    // watchdog reset and the firmware hasn't changed the RTC flag to
+    // indicate that it has been running OK for 30s then we will stay
+    // in bootloader
+#ifndef DISABLE_WATCHDOG
+    stm32_watchdog_init();
+#endif
+    stm32_watchdog_pat();
+#endif
+
     flash_set_keep_unlocked(false);
     
     led_set(LED_OFF);
@@ -239,6 +255,9 @@ jump_to_app()
 #if defined(STM32H7)
     rccDisableAPB1L(~0);
     rccDisableAPB1H(~0);
+#elif defined(STM32G4)
+    rccDisableAPB1R1(~0);
+    rccDisableAPB1R2(~0);
 #else
     rccDisableAPB1(~0);
 #endif
@@ -309,94 +328,6 @@ cout_word(uint32_t val)
     cout((uint8_t *)&val, 4);
 }
 
-static uint32_t
-crc32(const uint8_t *src, unsigned len, unsigned state)
-{
-    static uint32_t crctab[256];
-
-    /* check whether we have generated the CRC table yet */
-    /* this is much smaller than a static table */
-    if (crctab[1] == 0) {
-        for (unsigned i = 0; i < 256; i++) {
-            uint32_t c = i;
-
-            for (unsigned j = 0; j < 8; j++) {
-                if (c & 1) {
-                    c = 0xedb88320U ^ (c >> 1);
-
-                } else {
-                    c = c >> 1;
-                }
-            }
-
-            crctab[i] = c;
-        }
-    }
-
-    for (unsigned i = 0; i < len; i++) {
-        state = crctab[(state ^ src[i]) & 0xff] ^ (state >> 8);
-    }
-
-    return state;
-}
-
-
-/*
-  we use a write buffer for flashing, both for efficiency and to
-  ensure that we only ever do 32 byte aligned writes on STM32H7. If
-  you attempt to do writes on a H7 of less than 32 bytes or not
-  aligned then the flash can end up in a CRC error state, which can
-  generate a hardware fault (a double ECC error) on flash read, even
-  after a power cycle
- */
-static struct {
-    uint32_t buffer[8];
-    uint32_t address;
-    uint8_t n;
-} fbuf;
-
-/*
-  flush the write buffer
- */
-static bool flash_write_flush(void)
-{
-    if (fbuf.n == 0) {
-        return true;
-    }
-    fbuf.n = 0;
-    return flash_func_write_words(fbuf.address, fbuf.buffer, ARRAY_SIZE(fbuf.buffer));
-}
-
-/*
-  write to flash with buffering to 32 bytes alignment
- */
-static bool flash_write_buffer(uint32_t address, const uint32_t *v, uint8_t nwords)
-{
-    if (fbuf.n > 0 && address != fbuf.address + fbuf.n*4) {
-        if (!flash_write_flush()) {
-            return false;
-        }
-    }
-    while (nwords > 0) {
-        if (fbuf.n == 0) {
-            fbuf.address = address;
-            memset(fbuf.buffer, 0xff, sizeof(fbuf.buffer));
-        }
-        uint8_t n = MIN(ARRAY_SIZE(fbuf.buffer)-fbuf.n, nwords);
-        memcpy(&fbuf.buffer[fbuf.n], v, n*4);
-        address += n*4;
-        v += n;
-        nwords -= n;
-        fbuf.n += n;
-        if (fbuf.n == ARRAY_SIZE(fbuf.buffer)) {
-            if (!flash_write_flush()) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 #define TEST_FLASH 0
 
 #if TEST_FLASH
@@ -461,8 +392,10 @@ bootloader(unsigned timeout)
     uint32_t	read_address = 0;
     uint32_t	first_words[RESERVE_LEAD_WORDS];
     bool done_sync = false;
-    bool done_get_device = false;
+    uint8_t done_get_device_flags = 0;
+    bool done_erase = false;
     static bool done_timer_init;
+    unsigned original_timeout = timeout;
 
     memset(first_words, 0xFF, sizeof(first_words));
 
@@ -499,7 +432,7 @@ bootloader(unsigned timeout)
 
             /* try to get a byte from the host */
             c = cin(0);
-#if HAL_USE_CAN == TRUE
+#if HAL_USE_CAN == TRUE || HAL_NUM_CAN_IFACES
             if (c < 0) {
                 can_update();
             }
@@ -581,7 +514,7 @@ bootloader(unsigned timeout)
             default:
                 goto cmd_bad;
             }
-            done_get_device = true;
+            done_get_device_flags |= (1<<(arg-1)); // set the flags for use when resetting timeout 
             break;
 
         // erase and prepare for programming
@@ -592,16 +525,21 @@ bootloader(unsigned timeout)
         //
         case PROTO_CHIP_ERASE:
 
-            if (!done_sync || !done_get_device) {
+            if (!done_sync || !CHECK_GET_DEVICE_FINISHED(done_get_device_flags)) {
                 // lower chance of random data on a uart triggering erase
                 goto cmd_bad;
             }
-            
+
             /* expect EOC */
             if (!wait_for_eoc(2)) {
                 goto cmd_bad;
             }
 
+            // once erase is done there is no going back, set timeout
+            // to zero
+            done_erase = true;
+            timeout = 0;
+            
             flash_set_keep_unlocked(true);
 
             // clear the bootloader LED while erasing - it stops blinking at random
@@ -639,7 +577,7 @@ bootloader(unsigned timeout)
         // readback failure:	INSYNC/FAILURE
         //
         case PROTO_PROG_MULTI:		// program bytes
-            if (!done_sync || !done_get_device) {
+            if (!done_sync || !CHECK_GET_DEVICE_FINISHED(done_get_device_flags)) {
                 // lower chance of random data on a uart triggering erase
                 goto cmd_bad;
             }
@@ -722,7 +660,7 @@ bootloader(unsigned timeout)
                 } else {
                     bytes = flash_func_read_word(p);
                 }
-                sum = crc32((uint8_t *)&bytes, sizeof(bytes), sum);
+                sum = crc32_small(sum, (uint8_t *)&bytes, sizeof(bytes));
             }
 
             cout_word(sum);
@@ -911,7 +849,11 @@ bootloader(unsigned timeout)
             break;
 
 		case PROTO_SET_BAUD: {
-			/* expect arg then EOC */
+            if (!done_sync || !CHECK_GET_DEVICE_FINISHED(done_get_device_flags)) {
+                // prevent timeout going to zero on noise
+                goto cmd_bad;
+            }
+            /* expect arg then EOC */
             uint32_t baud = 0;
 
             if (cin_word(&baud, 100)) {
@@ -949,7 +891,7 @@ bootloader(unsigned timeout)
         
         // once we get both a valid sync and valid get_device then kill
         // the timeout
-        if (done_sync && done_get_device) {
+        if (done_sync && CHECK_GET_DEVICE_FINISHED(done_get_device_flags)) {
             timeout = 0;
         }
 
@@ -957,6 +899,12 @@ bootloader(unsigned timeout)
         sync_response();
         continue;
 cmd_bad:
+        // if we get a bad command it could be line noise on a
+        // uart. Set timeout back to original timeout so we don't get
+        // stuck in the bootloader
+        if (!done_erase) {
+            timeout = original_timeout;
+        }
         // send an 'invalid' response but don't kill the timeout - could be garbage
         invalid_response();
         continue;

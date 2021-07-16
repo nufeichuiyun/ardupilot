@@ -61,6 +61,10 @@ bool Plane::allow_reverse_thrust(void) const
         allow |= (g.use_reverse_thrust & USE_REVERSE_THRUST_AUTO_WAYPOINT) &&
                     (nav_cmd == MAV_CMD_NAV_WAYPOINT ||
                      nav_cmd == MAV_CMD_NAV_SPLINE_WAYPOINT);
+
+        // we are on a landing pattern
+        allow |= (g.use_reverse_thrust & USE_REVERSE_THRUST_AUTO_LANDING_PATTERN) &&
+                mission.get_in_landing_sequence_flag();
         }
         break;
 
@@ -83,14 +87,29 @@ bool Plane::allow_reverse_thrust(void) const
     case Mode::Number::GUIDED:
         allow |= (g.use_reverse_thrust & USE_REVERSE_THRUST_GUIDED);
         break;
+    case Mode::Number::TAKEOFF:
+        allow = false;
+        break;
+case Mode::Number::FLY_BY_WIRE_A:
+        allow |= (g.use_reverse_thrust & USE_REVERSE_THRUST_FBWA);
+        break;
+case Mode::Number::ACRO:
+        allow |= (g.use_reverse_thrust & USE_REVERSE_THRUST_ACRO);
+        break;
+case Mode::Number::STABILIZE:
+        allow |= (g.use_reverse_thrust & USE_REVERSE_THRUST_STABILIZE);
+        break;
+case Mode::Number::THERMAL:
+        allow |= (g.use_reverse_thrust & USE_REVERSE_THRUST_THERMAL);
+        break;
     default:
-        // all other control_modes are auto_throttle_mode=false.
-        // If we are not controlling throttle, don't limit it.
+        // all other control_modes allow independent of mask(MANUAL)
         allow = true;
         break;
     }
 
-    return allow;
+    // cope with bitwise ops above
+    return allow != false;
 }
 
 /*

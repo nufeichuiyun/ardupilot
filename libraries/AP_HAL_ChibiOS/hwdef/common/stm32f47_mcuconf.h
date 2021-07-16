@@ -81,28 +81,71 @@
 #ifndef STM32_PLLSRC
 #define STM32_PLLSRC                        STM32_PLLSRC_HSE
 #endif
-#ifndef STM32_PLLM_VALUE
-#define STM32_PLLM_VALUE                    24
-#endif
-#ifndef STM32_PLLN_VALUE
-#define STM32_PLLN_VALUE                    336
-#endif
-#ifndef STM32_PLLP_VALUE
-#define STM32_PLLP_VALUE                    2
-#endif
-#ifndef STM32_PLLQ_VALUE
-#define STM32_PLLQ_VALUE                    7
-#endif
 
-#ifndef STM32_HPRE
+#if !defined(HAL_CUSTOM_CLOCK_TREE)
+#if defined(STM32F7xx_MCUCONF)
+// F7 clock config
+#if STM32_HSECLK == 0U
+#undef STM32_HSE_ENABLED
+#undef STM32_HSI_ENABLED
+#undef STM32_PLLSRC
+#define STM32_HSE_ENABLED                   FALSE
+#define STM32_HSI_ENABLED                   TRUE
+#define STM32_PLLSRC                        STM32_PLLSRC_HSI
+#define STM32_PLLM_VALUE                    8
+#define STM32_PLLN_VALUE                    216
+#define STM32_PLLP_VALUE                    2
+#define STM32_PLLQ_VALUE                    9
+#elif STM32_HSECLK == 8000000U
+#define STM32_PLLM_VALUE                    8
+#define STM32_PLLN_VALUE                    432
+#define STM32_PLLP_VALUE                    2
+#define STM32_PLLQ_VALUE                    9
+#elif STM32_HSECLK == 16000000U
+#define STM32_PLLM_VALUE                    8
+#define STM32_PLLN_VALUE                    216
+#define STM32_PLLP_VALUE                    2
+#define STM32_PLLQ_VALUE                    9
+#elif STM32_HSECLK == 24000000U
+#define STM32_PLLM_VALUE                    24
+#define STM32_PLLN_VALUE                    432
+#define STM32_PLLP_VALUE                    2
+#define STM32_PLLQ_VALUE                    9
+#else
+#error "Unsupported F7 HSE clock"
+#endif
+#else // F4
+// F4 clock config
+#if STM32_HSECLK == 8000000U
+#define STM32_PLLM_VALUE                    8
+#define STM32_PLLN_VALUE                    336
+#define STM32_PLLP_VALUE                    2
+#define STM32_PLLQ_VALUE                    7
+#elif STM32_HSECLK == 16000000U
+#define STM32_PLLM_VALUE                    16
+#define STM32_PLLN_VALUE                    384
+#define STM32_PLLP_VALUE                    4
+#define STM32_PLLQ_VALUE                    8
+#elif STM32_HSECLK == 24000000U
+#define STM32_PLLM_VALUE                    24
+#define STM32_PLLN_VALUE                    336
+#define STM32_PLLP_VALUE                    2
+#define STM32_PLLQ_VALUE                    7
+#else
+#error "Unsupported F4 HSE clock"
+#endif
+#endif // MCU
+#endif // HAL_CUSTOM_CLOCK_TREE
+
+// we don't use LSE, but we need the defines
+#define STM32_LSECLK   32768U
+#define STM32_LSEDRV   (3U << 3U)
+
+#define STM32_VDD 330U
+
 #define STM32_HPRE                          STM32_HPRE_DIV1
-#endif
-#ifndef STM32_PPRE1
 #define STM32_PPRE1                         STM32_PPRE1_DIV4
-#endif
-#ifndef STM32_PPRE2
 #define STM32_PPRE2                         STM32_PPRE2_DIV2
-#endif
 #define STM32_RTCSEL                        STM32_RTCSEL_LSI
 #define STM32_RTCPRE_VALUE                  8
 #define STM32_MCO1SEL                       STM32_MCO1SEL_HSI
@@ -163,20 +206,21 @@
 /*
  * EXT driver system settings.
  */
-#define STM32_EXT_EXTI0_IRQ_PRIORITY        6
-#define STM32_EXT_EXTI1_IRQ_PRIORITY        6
-#define STM32_EXT_EXTI2_IRQ_PRIORITY        6
-#define STM32_EXT_EXTI3_IRQ_PRIORITY        6
-#define STM32_EXT_EXTI4_IRQ_PRIORITY        6
-#define STM32_EXT_EXTI5_9_IRQ_PRIORITY      6
-#define STM32_EXT_EXTI10_15_IRQ_PRIORITY    6
-#define STM32_EXT_EXTI16_IRQ_PRIORITY       6
-#define STM32_EXT_EXTI17_IRQ_PRIORITY       15
-#define STM32_EXT_EXTI18_IRQ_PRIORITY       6
-#define STM32_EXT_EXTI19_IRQ_PRIORITY       6
-#define STM32_EXT_EXTI20_IRQ_PRIORITY       6
-#define STM32_EXT_EXTI21_IRQ_PRIORITY       15
-#define STM32_EXT_EXTI22_IRQ_PRIORITY       15
+#define STM32_IRQ_EXTI0_PRIORITY        6
+#define STM32_IRQ_EXTI1_PRIORITY        6
+#define STM32_IRQ_EXTI2_PRIORITY        6
+#define STM32_IRQ_EXTI3_PRIORITY        6
+#define STM32_IRQ_EXTI4_PRIORITY        6
+#define STM32_IRQ_EXTI5_9_PRIORITY      6
+#define STM32_IRQ_EXTI10_15_PRIORITY    6
+#define STM32_IRQ_EXTI16_PRIORITY       6
+#define STM32_IRQ_EXTI17_PRIORITY       15
+#define STM32_IRQ_EXTI18_PRIORITY       6
+#define STM32_IRQ_EXTI19_PRIORITY       6
+#define STM32_IRQ_EXTI20_PRIORITY       6
+#define STM32_IRQ_EXTI21_PRIORITY       15
+#define STM32_IRQ_EXTI22_PRIORITY       15
+#define STM32_IRQ_EXTI23_PRIORITY       15
 
 /*
  * GPT driver system settings.
@@ -352,15 +396,28 @@
 #define STM32_ST_USE_TIMER                  2
 #endif
 
+#define STM32_IRQ_TIM1_UP_PRIORITY          7
+#define STM32_IRQ_TIM1_UP_TIM10_PRIORITY    7
+#define STM32_IRQ_TIM1_CC_PRIORITY          7
+#define STM32_IRQ_TIM2_PRIORITY             7
+#define STM32_IRQ_TIM3_PRIORITY             7
+#define STM32_IRQ_TIM4_PRIORITY             7
+#define STM32_IRQ_TIM5_PRIORITY             7
+#define STM32_IRQ_TIM6_PRIORITY             7
+#define STM32_IRQ_TIM7_PRIORITY             7
+#define STM32_IRQ_TIM8_BRK_TIM12_PRIORITY   7
+#define STM32_IRQ_TIM1_BRK_TIM9_PRIORITY    7
+#define STM32_IRQ_TIM8_UP_TIM13_PRIORITY    7
+#define STM32_IRQ_TIM8_TRGCO_TIM14_PRIORITY 7
+#define STM32_IRQ_TIM1_TRGCO_TIM11_PRIORITY 7
+#define STM32_IRQ_TIM8_CC_PRIORITY          7
+#define STM32_IRQ_TIM15_PRIORITY            7
+#define STM32_IRQ_TIM16_PRIORITY            7
+#define STM32_IRQ_TIM17_PRIORITY            7
+
 /*
  * UART driver system settings.
  */
-#define STM32_UART_USART1_IRQ_PRIORITY      12
-#define STM32_UART_USART2_IRQ_PRIORITY      12
-#define STM32_UART_USART3_IRQ_PRIORITY      12
-#define STM32_UART_UART4_IRQ_PRIORITY       12
-#define STM32_UART_UART5_IRQ_PRIORITY       12
-#define STM32_UART_USART6_IRQ_PRIORITY      12
 #define STM32_UART_USART1_DMA_PRIORITY      0
 #define STM32_UART_USART2_DMA_PRIORITY      0
 #define STM32_UART_USART3_DMA_PRIORITY      0
@@ -368,6 +425,23 @@
 #define STM32_UART_UART5_DMA_PRIORITY       0
 #define STM32_UART_USART6_DMA_PRIORITY      0
 #define STM32_UART_DMA_ERROR_HOOK(uartp)    osalSysHalt("DMA failure")
+
+#define STM32_IRQ_UART1_PRIORITY            12
+#define STM32_IRQ_UART2_PRIORITY            12
+#define STM32_IRQ_UART3_PRIORITY            12
+#define STM32_IRQ_UART4_PRIORITY            12
+#define STM32_IRQ_UART5_PRIORITY            12
+#define STM32_IRQ_UART6_PRIORITY            12
+#define STM32_IRQ_UART7_PRIORITY            12
+#define STM32_IRQ_UART8_PRIORITY            12
+#define STM32_IRQ_USART1_PRIORITY           12
+#define STM32_IRQ_USART2_PRIORITY           12
+#define STM32_IRQ_USART3_PRIORITY           12
+#define STM32_IRQ_USART4_PRIORITY           12
+#define STM32_IRQ_USART5_PRIORITY           12
+#define STM32_IRQ_USART6_PRIORITY           12
+#define STM32_IRQ_USART7_PRIORITY           12
+#define STM32_IRQ_USART8_PRIORITY           12
 
 /*
  * USB driver system settings.

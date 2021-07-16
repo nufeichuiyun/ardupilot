@@ -31,6 +31,8 @@
 #define debug(fmt, args ...)
 #endif
 
+#define PAGE_SIZE           (4*1024)
+
 //Parametres
 #define RCIN_RPI_BUFFER_LENGTH   4
 #define RCIN_RPI_SAMPLE_FREQ     125
@@ -44,9 +46,9 @@
 // Each gpio stands for a rcinput channel,
 // the first one in RcChnGpioTbl is channel 1 in receiver
 static uint16_t RcChnGpioTbl[RCIN_RPI_CHN_NUM] = {
-    RPI_GPIO_5,  RPI_GPIO_6,  RPI_GPIO_12,
-    RPI_GPIO_13, RPI_GPIO_19, RPI_GPIO_20,
-    RPI_GPIO_21, RPI_GPIO_26
+    RPI_GPIO_<5>(),  RPI_GPIO_<6>(),  RPI_GPIO_<12>(),
+    RPI_GPIO_<13>(), RPI_GPIO_<19>(), RPI_GPIO_<20>(),
+    RPI_GPIO_<21>(), RPI_GPIO_<26>()
 };
 #else
 #define RCIN_RPI_SIG_HIGH        1
@@ -56,12 +58,16 @@ static uint16_t RcChnGpioTbl[RCIN_RPI_CHN_NUM] = {
 #define PAGE_SIZE           (4*1024)
     NAVIO_GPIO_PPM_IN
 #else
-    RPI_GPIO_4
+    RPI_GPIO_<4>()
 #endif
 };
 #endif // CONFIG_HAL_BOARD_SUBTYPE
 
 //Memory Addresses
+#define RCIN_RPI_RPI0_DMA_BASE 0x20007000
+#define RCIN_RPI_RPI0_CLK_BASE 0x20101000
+#define RCIN_RPI_RPI0_PCM_BASE 0x20203000
+
 #define RCIN_RPI_RPI1_DMA_BASE 0x20007000
 #define RCIN_RPI_RPI1_CLK_BASE 0x20101000
 #define RCIN_RPI_RPI1_PCM_BASE 0x20203000
@@ -69,6 +75,14 @@ static uint16_t RcChnGpioTbl[RCIN_RPI_CHN_NUM] = {
 #define RCIN_RPI_RPI2_DMA_BASE 0x3F007000
 #define RCIN_RPI_RPI2_CLK_BASE 0x3F101000
 #define RCIN_RPI_RPI2_PCM_BASE 0x3F203000
+
+#define RCIN_RPI_RPI3_DMA_BASE 0x3F007000
+#define RCIN_RPI_RPI3_CLK_BASE 0x3F101000
+#define RCIN_RPI_RPI3_PCM_BASE 0x3F203000
+
+#define RCIN_RPI_RPI4_DMA_BASE 0xFE007000
+#define RCIN_RPI_RPI4_CLK_BASE 0xFE101000 
+#define RCIN_RPI_RPI4_PCM_BASE 0xFE203000
 
 #define RCIN_RPI_GPIO_LEV0_ADDR  0x7e200034
 #define RCIN_RPI_DMA_LEN         0x1000
@@ -100,8 +114,18 @@ static uint16_t RcChnGpioTbl[RCIN_RPI_CHN_NUM] = {
 #define RCIN_RPI_PCM_INT_STC_A   (0x1c/4)
 #define RCIN_RPI_PCM_GRAY        (0x20/4)
 
-#define RCIN_RPI_PCMCLK_CNTL     38
-#define RCIN_RPI_PCMCLK_DIV      39
+#define RCIN_RPI_PCMCLK_CNTL     0x26
+#define RCIN_RPI_PCMCLK_DIV      0x27
+
+#define RCIN_RPI_PLL_CLK         50000
+/*
+* Defaults to 107.14MHz in the firmware setup.
+* The PLL channel that used to generate the 100MHz now runs at 750MHz instead of 500,
+* so the fw uses 750/7.
+* see: https://www.raspberrypi.org/forums/viewtopic.php?t=251902
+*/
+#define RCIN_RPI4_PLL_CLK        70000
+
 
 
 extern const AP_HAL::HAL& hal;
@@ -179,7 +203,7 @@ void *Memory_table::get_page(void **const pages, uint32_t addr) const
     if (addr >= PAGE_SIZE * _page_count) {
         return nullptr;
     }
-    return (uint8_t *)pages[(uint32_t)addr / 4096] + addr % 4096;
+    return (uint8_t *)pages[(uint32_t)addr / PAGE_SIZE] + addr % PAGE_SIZE;
 }
 
 //Get virtual address from the corresponding physical address from memory_table.
@@ -226,16 +250,22 @@ uint32_t Memory_table::get_page_count() const
 }
 
 // Physical addresses of peripheral depends on Raspberry Pi's version
-void RCInput_RPI::set_physical_addresses(int version)
+void RCInput_RPI::set_physical_addresses()
 {
-    if (version == 1) {
+    if (_version == 1) { 
+        // 1 & zero are the same
         dma_base = RCIN_RPI_RPI1_DMA_BASE;
         clk_base = RCIN_RPI_RPI1_CLK_BASE;
         pcm_base = RCIN_RPI_RPI1_PCM_BASE;
-    } else if (version == 2) {
+    } else if (_version == 2) { 
+        // 2 & 3 are the same
         dma_base = RCIN_RPI_RPI2_DMA_BASE;
         clk_base = RCIN_RPI_RPI2_CLK_BASE;
         pcm_base = RCIN_RPI_RPI2_PCM_BASE;
+    } else if (_version == 4) {
+        dma_base = RCIN_RPI_RPI4_DMA_BASE;
+        clk_base = RCIN_RPI_RPI4_CLK_BASE;
+        pcm_base = RCIN_RPI_RPI4_PCM_BASE;
     }
 }
 
@@ -312,7 +342,7 @@ void RCInput_RPI::init_ctrl_data()
         if (i % 7 == 0) {
             cbp_curr = (dma_cb_t*)con_blocks->get_page(con_blocks->_virt_pages, cbp);
 
-            init_dma_cb(&cbp_curr, RCIN_RPI_DMA_NO_WIDE_BURSTS | RCIN_RPI_DMA_WAIT_RESP | RCIN_RPI_DMA_DEST_INC | RCIN_RPI_DMA_SRC_INC, RCIN_RPI_TIMER_BASE,
+            init_dma_cb(&cbp_curr, RCIN_RPI_DMA_NO_WIDE_BURSTS | RCIN_RPI_DMA_WAIT_RESP , RCIN_RPI_TIMER_BASE,
                         (uintptr_t)circle_buffer->get_page(circle_buffer->_phys_pages, dest),
                         8,
                         0,
@@ -353,23 +383,32 @@ void RCInput_RPI::init_ctrl_data()
     ((dma_cb_t *)con_blocks->get_page(con_blocks->_virt_pages, cbp))->next = (uintptr_t)con_blocks->get_page(con_blocks->_phys_pages, 0);
 }
 
+
 /*Initialise PCM
   See BCM2835 documentation:
   http://www.raspberrypi.org/wp-content/uploads/2012/02/BCM2835-ARM-Peripherals.pdf
- */
+  
+  See BCM2711 documentation:
+  https://datasheets.raspberrypi.org/bcm2711/bcm2711-peripherals.pdf
+*/
 void RCInput_RPI::init_PCM()
 {
     pcm_reg[RCIN_RPI_PCM_CS_A] = 1;                                          // Disable Rx+Tx, Enable PCM block
     hal.scheduler->delay_microseconds(100);
     clk_reg[RCIN_RPI_PCMCLK_CNTL] = 0x5A000006;                              // Source=PLLD (500MHz)
     hal.scheduler->delay_microseconds(100);
-    clk_reg[RCIN_RPI_PCMCLK_DIV] = 0x5A000000 | ((50000/RCIN_RPI_SAMPLE_FREQ)<<12);   // Set pcm div. If we need to configure DMA frequency.
+    if (_version != 4) {
+        clk_reg[RCIN_RPI_PCMCLK_DIV] = 0x5A000000 | ((RCIN_RPI_PLL_CLK/RCIN_RPI_SAMPLE_FREQ)<<12);   // Set pcm div for BCM2835 500MHZ clock. If we need to configure DMA frequency.
+    }
+    else {
+        clk_reg[RCIN_RPI_PCMCLK_DIV] = 0x5A000000 | ((RCIN_RPI4_PLL_CLK/RCIN_RPI_SAMPLE_FREQ)<< 12); // Set pcm div for BCM2711 700MHz clock. If we need to configure DMA frequency.
+    }
     hal.scheduler->delay_microseconds(100);
     clk_reg[RCIN_RPI_PCMCLK_CNTL] = 0x5A000016;                              // Source=PLLD and enable
     hal.scheduler->delay_microseconds(100);
     pcm_reg[RCIN_RPI_PCM_TXC_A] = 0<<31 | 1<<30 | 0<<20 | 0<<16;             // 1 channel, 8 bits
     hal.scheduler->delay_microseconds(100);
-    pcm_reg[RCIN_RPI_PCM_MODE_A] = (10 - 1) << 10;                           //PCM mode
+    pcm_reg[RCIN_RPI_PCM_MODE_A] = (10 - 1) << 10;                           //PCM mode 0b0010010000000000
     hal.scheduler->delay_microseconds(100);
     pcm_reg[RCIN_RPI_PCM_CS_A] |= 1<<4 | 1<<3;                               // Clear FIFOs
     hal.scheduler->delay_microseconds(100);
@@ -380,6 +419,7 @@ void RCInput_RPI::init_PCM()
     pcm_reg[RCIN_RPI_PCM_CS_A] |= 1<<2;                                      // Enable Tx
     hal.scheduler->delay_microseconds(100);
 }
+
 
 /*Initialise DMA
   See BCM2835 documentation:
@@ -457,15 +497,16 @@ void RCInput_RPI::init()
     uint64_t signal_states(0);
 
 #if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_ERLEBRAIN2
-    int version = 2;
+    _version = 2;
 #else
-    int version = UtilRPI::from(hal.util)->get_rpi_version();
+    _version = UtilRPI::from(hal.util)->get_rpi_version();
 #endif
-    set_physical_addresses(version);
+
+    set_physical_addresses();
     // Init memory for buffer and for DMA control blocks.
     // See comments in "init_ctrl_data()" to understand values "2" and "15"
-    circle_buffer = new Memory_table(RCIN_RPI_BUFFER_LENGTH * 2, version);
-    con_blocks = new Memory_table(RCIN_RPI_BUFFER_LENGTH * 15, version);
+    circle_buffer = new Memory_table(RCIN_RPI_BUFFER_LENGTH * 2, _version);
+    con_blocks = new Memory_table(RCIN_RPI_BUFFER_LENGTH * 15, _version);
 
     init_registers();
 
@@ -522,8 +563,18 @@ void RCInput_RPI::_timer_tick()
         return;
     }
 
+    const uint32_t offset = con_blocks->get_offset(con_blocks->_virt_pages,(uintptr_t)ad);
     for (int j = 1; j >= -1; j--) {
-        void *x = circle_buffer->get_virt_addr((ad + j)->dst);
+        
+        // Get address of next or previous (dma_cb_t)
+        ad = (dma_cb_t *)con_blocks->get_page(con_blocks->_virt_pages,offset + (uint32_t)(sizeof(dma_cb_t) * j));
+        if (!ad) 
+        {
+           continue ;
+        }
+        
+        void *x = circle_buffer->get_virt_addr((ad)->dst);
+        
         if (x != nullptr) {
             counter = circle_buffer->bytes_available(curr_pointer,
                                                      circle_buffer->get_offset(circle_buffer->_virt_pages, (uintptr_t)x));

@@ -13,12 +13,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/*
- *       AP_MotorsSingle.cpp - ArduCopter motors library
- *       Code by RandyMackay. DIYDrones.com
- *
- */
-
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
 #include "AP_MotorsCoax.h"
@@ -43,14 +37,16 @@ void AP_MotorsCoax::init(motor_frame_class frame_class, motor_frame_type frame_t
         SRV_Channels::set_angle(SRV_Channels::get_motor_function(i), AP_MOTORS_COAX_SERVO_INPUT_RANGE);
     }
 
+    _mav_type = MAV_TYPE_COAXIAL;
+
     // record successful initialisation if what we setup was the desired frame_class
-    _flags.initialised_ok = (frame_class == MOTOR_FRAME_COAX);
+    set_initialised_ok(frame_class == MOTOR_FRAME_COAX);
 }
 
 // set frame class (i.e. quad, hexa, heli) and type (i.e. x, plus)
 void AP_MotorsCoax::set_frame_class_and_type(motor_frame_class frame_class, motor_frame_type frame_type)
 {
-    _flags.initialised_ok = (frame_class == MOTOR_FRAME_COAX);
+    set_initialised_ok(frame_class == MOTOR_FRAME_COAX);
 }
 
 // set update rate to motors - a value in hertz
@@ -113,7 +109,7 @@ uint16_t AP_MotorsCoax::get_motor_mask()
         1U << AP_MOTORS_MOT_4 |
         1U << AP_MOTORS_MOT_5 |
         1U << AP_MOTORS_MOT_6;
-    uint16_t mask = rc_map_mask(motor_mask);
+    uint16_t mask = motor_mask_to_srv_channel_mask(motor_mask);
 
     // add parent's mask
     mask |= AP_MotorsMulticopter::get_motor_mask();
@@ -186,6 +182,8 @@ void AP_MotorsCoax::output_armed_stabilizing()
 
     // calculate the throttle setting for the lift fan
     thrust_out = throttle_avg_max + thr_adj;
+    // compensation_gain can never be zero
+    _throttle_out = thrust_out / compensation_gain;
 
     if (fabsf(yaw_thrust) > thrust_out) {
         yaw_thrust = constrain_float(yaw_thrust, -thrust_out, thrust_out);

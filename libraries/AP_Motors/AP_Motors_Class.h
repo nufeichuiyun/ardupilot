@@ -44,7 +44,14 @@ public:
         MOTOR_FRAME_HELI_DUAL = 11,
         MOTOR_FRAME_DODECAHEXA = 12,
         MOTOR_FRAME_HELI_QUAD = 13,
+        MOTOR_FRAME_DECA = 14,
+        MOTOR_FRAME_SCRIPTING_MATRIX = 15,
+        MOTOR_FRAME_6DOF_SCRIPTING = 16,
     };
+
+    // return string corresponding to frame_class
+    virtual const char* get_frame_string() const = 0;
+
     enum motor_frame_type {
         MOTOR_FRAME_TYPE_PLUS = 0,
         MOTOR_FRAME_TYPE_X = 1,
@@ -59,7 +66,16 @@ public:
         MOTOR_FRAME_TYPE_DJI_X = 13, // X frame, DJI ordering
         MOTOR_FRAME_TYPE_CW_X = 14, // X frame, clockwise ordering
         MOTOR_FRAME_TYPE_I = 15, // (sideways H) octo only
+        MOTOR_FRAME_TYPE_NYT_PLUS = 16, // plus frame, no differential torque for yaw
+        MOTOR_FRAME_TYPE_NYT_X = 17, // X frame, no differential torque for yaw
+        MOTOR_FRAME_TYPE_BF_X_REV = 18, // X frame, betaflight ordering, reversed motors
     };
+
+    // return string corresponding to frame_type
+    virtual const char* get_type_string() const { return ""; }
+
+    // returns a formatted string into buffer, e.g. "QUAD/X"
+    void get_frame_and_type_string(char *buffer, uint8_t buflen) const;
 
     // Constructor
     AP_Motors(uint16_t loop_rate, uint16_t speed_hz = AP_MOTORS_SPEED_DEFAULT);
@@ -68,17 +84,18 @@ public:
     static AP_Motors    *get_singleton(void) { return _singleton; }
 
     // check initialisation succeeded
-    bool                initialised_ok() const { return _flags.initialised_ok; }
+    bool                initialised_ok() const { return _initialised_ok; }
+    void                set_initialised_ok(bool val) { _initialised_ok = val; }
 
     // arm, disarm or check status status of motors
-    bool                armed() const { return _flags.armed; }
+    bool                armed() const { return _armed; }
     void                armed(bool arm);
 
     // set motor interlock status
-    void                set_interlock(bool set) { _flags.interlock = set;}
+    void                set_interlock(bool set) { _interlock = set;}
 
     // get motor interlock status.  true means motors run, false motors don't run
-    bool                get_interlock() const { return _flags.interlock; }
+    bool                get_interlock() const { return _interlock; }
 
     // set_roll, set_pitch, set_yaw, set_throttle
     void                set_roll(float roll_in) { _roll_in = roll_in; };        // range -1 ~ +1
@@ -93,10 +110,17 @@ public:
     void                set_forward(float forward_in) { _forward_in = forward_in; }; // range -1 ~ +1
     void                set_lateral(float lateral_in) { _lateral_in = lateral_in; };     // range -1 ~ +1
 
+    // for 6DoF vehicles, sets the roll and pitch offset, this rotates the thrust vector in body frame
+    virtual void        set_roll_pitch(float roll_deg, float pitch_deg) {};
+
     // accessors for roll, pitch, yaw and throttle inputs to motors
     float               get_roll() const { return _roll_in; }
+    float               get_roll_ff() const { return _roll_in_ff; }
     float               get_pitch() const { return _pitch_in; }
+    float               get_pitch_ff() const { return _pitch_in_ff; }
     float               get_yaw() const { return _yaw_in; }
+    float               get_yaw_ff() const { return _yaw_in_ff; }
+    float               get_throttle_out() const { return _throttle_out; }
     float               get_throttle() const { return constrain_float(_throttle_filter.get(), 0.0f, 1.0f); }
     float               get_throttle_bidirectional() const { return constrain_float(2 * (_throttle_filter.get() - 0.5f), -1.0f, 1.0f); }
     float               get_forward() const { return _forward_in; }
@@ -143,6 +167,9 @@ public:
         uint8_t throttle_upper  : 1; // we have reached throttle's upper limit
     } limit;
 
+    // set limit flag for pitch, roll and yaw
+    void set_limit_flag_pitch_roll_yaw(bool flag);
+
     //
     // virtual functions that should be implemented by child classes
     //
@@ -181,6 +208,10 @@ public:
     // using copter motors for forward flight
     virtual float       get_roll_factor(uint8_t i) { return 0.0f; }
 
+    // This function required for tradheli. Tradheli initializes targets when going from unarmed to armed state.
+    // This function is overriden in motors_heli class.   Always true for multicopters.
+    virtual bool init_targets_on_arming() const { return true; }
+
     enum pwm_type { PWM_TYPE_NORMAL     = 0,
                     PWM_TYPE_ONESHOT    = 1,
                     PWM_TYPE_ONESHOT125 = 2,
@@ -190,14 +221,23 @@ public:
                     PWM_TYPE_DSHOT600   = 6,
                     PWM_TYPE_DSHOT1200  = 7};
     pwm_type            get_pwm_type(void) const { return (pwm_type)_pwm_type.get(); }
-    
+
+    MAV_TYPE get_frame_mav_type() const { return _mav_type; }
+
 protected:
     // output functions that should be overloaded by child classes
     virtual void        output_armed_stabilizing() = 0;
     virtual void        rc_write(uint8_t chan, uint16_t pwm);
     virtual void        rc_write_angle(uint8_t chan, int16_t angle_cd);
     virtual void        rc_set_freq(uint32_t mask, uint16_t freq_hz);
-    virtual uint32_t    rc_map_mask(uint32_t mask) const;
+
+
+    /*
+      map an internal motor mask to real motor mask, accounting for
+      SERVOn_FUNCTION mappings, and allowing for multiple outputs per
+      motor number
+    */
+    uint32_t    motor_mask_to_srv_channel_mask(uint32_t mask) const;
 
     // add a motor to the motor map
     void add_motor_num(int8_t motor_num);
@@ -207,13 +247,6 @@ protected:
 
     // save parameters as part of disarming
     virtual void save_params_on_disarm() {}
-
-    // flag bitmask
-    struct AP_Motors_flags {
-        uint8_t armed              : 1;    // 0 if disarmed, 1 if armed
-        uint8_t interlock          : 1;    // 1 if the motor interlock is enabled (i.e. motors run), 0 if disabled (motors don't run)
-        uint8_t initialised_ok     : 1;    // 1 if initialisation was successful
-    } _flags;
 
     // internal variables
     uint16_t            _loop_rate;                 // rate in Hz at which output() function is called (normally 400hz)
@@ -225,6 +258,7 @@ protected:
     float               _yaw_in;                    // desired yaw control from attitude controller, -1 ~ +1
     float               _yaw_in_ff;                 // desired yaw feed forward control from attitude controller, -1 ~ +1
     float               _throttle_in;               // last throttle input from set_throttle caller
+    float               _throttle_out;              // throttle after mixing is complete
     float               _forward_in;                // last forward input from set_forward caller
     float               _lateral_in;                // last lateral input from set_lateral caller
     float               _throttle_avg_max;          // last throttle input from set_throttle_avg_max
@@ -251,6 +285,17 @@ protected:
     bool                _thrust_balanced;       // true when output thrust is well balanced
     float               _thrust_boost_ratio;    // choice between highest and second highest motor output for output mixing (0 ~ 1). Zero is normal operation
 
+    MAV_TYPE _mav_type; // MAV_TYPE_GENERIC = 0;
+
 private:
+
+    bool _armed;             // 0 if disarmed, 1 if armed
+    bool _interlock;         // 1 if the motor interlock is enabled (i.e. motors run), 0 if disabled (motors don't run)
+    bool _initialised_ok;    // 1 if initialisation was successful
+
     static AP_Motors *_singleton;
+};
+
+namespace AP {
+    AP_Motors *motors();
 };

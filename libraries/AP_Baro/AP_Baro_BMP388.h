@@ -32,9 +32,9 @@ private:
 
     AP_HAL::OwnPtr<AP_HAL::Device> dev;
 
-    bool has_sample;
     uint8_t instance;
-    float pressure;
+    float pressure_sum;
+    uint32_t pressure_count;
     float temperature;
 
     // Internal calibration registers
@@ -78,4 +78,5 @@ private:
     } calib;
 
     void scale_calibration_data(void);
+    bool read_registers(uint8_t reg, uint8_t *data, uint8_t len);
 };

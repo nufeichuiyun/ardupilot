@@ -11,7 +11,7 @@
  *
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
- * 
+ *
  * Code by Andrew Tridgell and Siddharth Bharat Purohit
  */
 #pragma once
@@ -45,10 +45,16 @@ public:
     uint16_t read(uint8_t ch) override;
     uint8_t read(uint16_t* periods, uint8_t len) override;
 
+    /* enable or disable pulse input for RC input. This is used to
+       reduce load when we are decoding R/C via a UART */
+    void pulse_input_enable(bool enable) override;
+
     int16_t get_rssi(void) override {
         return _rssi;
     }
-
+    int16_t get_rx_link_quality(void) override {
+        return _rx_link_quality;
+    }
     const char *protocol() const override { return last_protocol; }
 
     void _timer_tick(void);
@@ -61,9 +67,11 @@ private:
     uint8_t _num_channels;
     Semaphore rcin_mutex;
     int16_t _rssi = -1;
+    int16_t _rx_link_quality = -1;
     uint32_t _rcin_timestamp_last_signal;
     bool _init;
     const char *last_protocol;
+    bool pulse_input_enabled;
 
 #if HAL_RCINPUT_WITH_AP_RADIO
     bool _radio_init;

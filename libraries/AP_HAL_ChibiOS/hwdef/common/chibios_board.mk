@@ -96,7 +96,7 @@ include $(CHIBIOS)/$(CHIBIOS_STARTUP_MK)
 # HAL-OSAL files (optional).
 include $(CHIBIOS)/os/hal/hal.mk
 include $(CHIBIOS)/$(CHIBIOS_PLATFORM_MK)
-include $(CHIBIOS)/os/hal/osal/rt/osal.mk
+include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
 # RTOS files (optional).
 include $(CHIBIOS)/os/rt/rt.mk
 include $(CHIBIOS)/os/common/ports/ARMCMx/compilers/GCC/mk/port_v7m.mk
@@ -211,6 +211,16 @@ UDEFS = $(ENV_UDEFS) $(FATFS_FLAGS) -DHAL_BOARD_NAME=\"$(HAL_BOARD_NAME)\"
 ifeq ($(ENABLE_ASSERTS),yes)
  UDEFS += -DHAL_CHIBIOS_ENABLE_ASSERTS
  ASXFLAGS += -DHAL_CHIBIOS_ENABLE_ASSERTS
+endif
+
+ifeq ($(ENABLE_MALLOC_GUARD),yes)
+ UDEFS += -DHAL_CHIBIOS_ENABLE_MALLOC_GUARD
+ ASXFLAGS += -DHAL_CHIBIOS_ENABLE_MALLOC_GUARD
+endif
+
+ifeq ($(ENABLE_STATS),yes)
+ UDEFS += -DHAL_ENABLE_THREAD_STATISTICS
+ ASXFLAGS += -DHAL_ENABLE_THREAD_STATISTICS
 endif
 
 # Define ASM defines here

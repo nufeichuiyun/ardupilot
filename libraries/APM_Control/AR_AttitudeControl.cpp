@@ -26,19 +26,19 @@ const AP_Param::GroupInfo AR_AttitudeControl::var_info[] = {
     // @DisplayName: Steering control rate P gain
     // @Description: Steering control rate P gain.  Converts the turn rate error (in radians/sec) to a steering control output (in the range -1 to +1)
     // @Range: 0.000 2.000
-    // @Increment: 0.01
+    // @Increment: 0.001
     // @User: Standard
 
     // @Param: _STR_RAT_I
     // @DisplayName: Steering control I gain
     // @Description: Steering control I gain.  Corrects long term error between the desired turn rate (in rad/s) and actual
     // @Range: 0.000 2.000
-    // @Increment: 0.01
+    // @Increment: 0.001
     // @User: Standard
 
     // @Param: _STR_RAT_IMAX
     // @DisplayName: Steering control I gain maximum
-    // @Description: Steering control I gain maximum.  Constraings the steering output (range -1 to +1) that the I term will generate
+    // @Description: Steering control I gain maximum.  Constrains the steering output (range -1 to +1) that the I term will generate
     // @Range: 0.000 1.000
     // @Increment: 0.01
     // @User: Standard
@@ -64,6 +64,38 @@ const AP_Param::GroupInfo AR_AttitudeControl::var_info[] = {
     // @Increment: 0.1
     // @Units: Hz
     // @User: Standard
+
+    // @Param: _STR_RAT_FLTT
+    // @DisplayName: Steering control Target filter frequency in Hz
+    // @Description: Target filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _STR_RAT_FLTE
+    // @DisplayName: Steering control Error filter frequency in Hz
+    // @Description: Error filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _STR_RAT_FLTD
+    // @DisplayName: Steering control Derivative term filter frequency in Hz
+    // @Description: Derivative filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _STR_RAT_SMAX
+    // @DisplayName: Steering slew rate limit
+    // @Description: Sets an upper limit on the slew rate produced by the combined P and D gains. If the amplitude of the control action produced by the rate feedback exceeds this value, then the D+P gain is reduced to respect the limit. This limits the amplitude of high frequency oscillations caused by an excessive gain. The limit should be set to no more than 25% of the actuators maximum slew rate to allow for load effects. Note: The gain will not be reduced to less than 10% of the nominal value. A value of zero will disable this feature.
+    // @Range: 0 200
+    // @Increment: 0.5
+    // @User: Advanced
+
     AP_SUBGROUPINFO(_steer_rate_pid, "_STR_RAT_", 1, AR_AttitudeControl, AC_PID),
 
     // @Param: _SPEED_P
@@ -77,11 +109,12 @@ const AP_Param::GroupInfo AR_AttitudeControl::var_info[] = {
     // @DisplayName: Speed control I gain
     // @Description: Speed control I gain.  Corrects long term error between the desired speed (in m/s) and actual speed
     // @Range: 0.000 2.000
+    // @Increment: 0.01
     // @User: Standard
 
     // @Param: _SPEED_IMAX
     // @DisplayName: Speed control I gain maximum
-    // @Description: Speed control I gain maximum.  Constraings the maximum motor output (range -1 to +1) that the I term will generate
+    // @Description: Speed control I gain maximum.  Constrains the maximum motor output (range -1 to +1) that the I term will generate
     // @Range: 0.000 1.000
     // @Increment: 0.01
     // @User: Standard
@@ -107,6 +140,38 @@ const AP_Param::GroupInfo AR_AttitudeControl::var_info[] = {
     // @Increment: 0.1
     // @Units: Hz
     // @User: Standard
+
+    // @Param: _SPEED_FLTT
+    // @DisplayName: Speed control Target filter frequency in Hz
+    // @Description: Target filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _SPEED_FLTE
+    // @DisplayName: Speed control Error filter frequency in Hz
+    // @Description: Error filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _SPEED_FLTD
+    // @DisplayName: Speed control Derivative term filter frequency in Hz
+    // @Description: Derivative filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _SPEED_SMAX
+    // @DisplayName: Speed control slew rate limit
+    // @Description: Sets an upper limit on the slew rate produced by the combined P and D gains. If the amplitude of the control action produced by the rate feedback exceeds this value, then the D+P gain is reduced to respect the limit. This limits the amplitude of high frequency oscillations caused by an excessive gain. The limit should be set to no more than 25% of the actuators maximum slew rate to allow for load effects. Note: The gain will not be reduced to less than 10% of the nominal value. A value of zero will disable this feature.
+    // @Range: 0 200
+    // @Increment: 0.5
+    // @User: Advanced
+
     AP_SUBGROUPINFO(_throttle_speed_pid, "_SPEED_", 2, AR_AttitudeControl, AC_PID),
 
     // @Param: _ACCEL_MAX
@@ -180,6 +245,7 @@ const AP_Param::GroupInfo AR_AttitudeControl::var_info[] = {
     // @DisplayName: Pitch control I gain
     // @Description: Pitch control I gain for BalanceBots.  Corrects long term error between the desired pitch (in radians) and actual pitch
     // @Range: 0.000 2.000
+    // @Increment: 0.01
     // @User: Standard
 
     // @Param: _BAL_IMAX
@@ -210,6 +276,38 @@ const AP_Param::GroupInfo AR_AttitudeControl::var_info[] = {
     // @Increment: 0.1
     // @Units: Hz
     // @User: Standard
+
+    // @Param: _BAL_FLTT
+    // @DisplayName: Pitch control Target filter frequency in Hz
+    // @Description: Target filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _BAL_FLTE
+    // @DisplayName: Pitch control Error filter frequency in Hz
+    // @Description: Error filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _BAL_FLTD
+    // @DisplayName: Pitch control Derivative term filter frequency in Hz
+    // @Description: Derivative filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _BAL_SMAX
+    // @DisplayName: Pitch control slew rate limit
+    // @Description: Sets an upper limit on the slew rate produced by the combined P and D gains. If the amplitude of the control action produced by the rate feedback exceeds this value, then the D+P gain is reduced to respect the limit. This limits the amplitude of high frequency oscillations caused by an excessive gain. The limit should be set to no more than 25% of the actuators maximum slew rate to allow for load effects. Note: The gain will not be reduced to less than 10% of the nominal value. A value of zero will disable this feature.
+    // @Range: 0 200
+    // @Increment: 0.5
+    // @User: Advanced
+
     AP_SUBGROUPINFO(_pitch_to_throttle_pid, "_BAL_", 10, AR_AttitudeControl, AC_PID),
 
     // @Param: _BAL_SPD_FF
@@ -231,6 +329,7 @@ const AP_Param::GroupInfo AR_AttitudeControl::var_info[] = {
     // @DisplayName: Sail Heel control I gain
     // @Description: Sail Heel control I gain for sailboats.  Corrects long term error between the desired heel angle (in radians) and actual
     // @Range: 0.000 2.000
+    // @Increment: 0.01
     // @User: Standard
 
     // @Param: _SAIL_IMAX
@@ -261,7 +360,48 @@ const AP_Param::GroupInfo AR_AttitudeControl::var_info[] = {
     // @Increment: 0.1
     // @Units: Hz
     // @User: Standard
+
+    // @Param: _SAIL_FLTT
+    // @DisplayName: Sail Heel Target filter frequency in Hz
+    // @Description: Target filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _SAIL_FLTE
+    // @DisplayName: Sail Heel Error filter frequency in Hz
+    // @Description: Error filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _SAIL_FLTD
+    // @DisplayName: Sail Heel Derivative term filter frequency in Hz
+    // @Description: Derivative filter frequency in Hz
+    // @Range: 0.000 100.000
+    // @Increment: 0.1
+    // @Units: Hz
+    // @User: Standard
+
+    // @Param: _SAIL_SMAX
+    // @DisplayName: Sail heel slew rate limit
+    // @Description: Sets an upper limit on the slew rate produced by the combined P and D gains. If the amplitude of the control action produced by the rate feedback exceeds this value, then the D+P gain is reduced to respect the limit. This limits the amplitude of high frequency oscillations caused by an excessive gain. The limit should be set to no more than 25% of the actuators maximum slew rate to allow for load effects. Note: The gain will not be reduced to less than 10% of the nominal value. A value of zero will disable this feature.
+    // @Range: 0 200
+    // @Increment: 0.5
+    // @User: Advanced
+
     AP_SUBGROUPINFO(_sailboat_heel_pid, "_SAIL_", 12, AR_AttitudeControl, AC_PID),
+
+    // @Param: _TURN_MAX_G
+    // @DisplayName: Turning maximum G force
+    // @Description: The maximum turning acceleration (in units of gravities) that the rover can handle while remaining stable. The navigation code will keep the lateral acceleration below this level to avoid rolling over or slipping the wheels in turns
+    // @Units: gravities
+    // @Range: 0.1 10
+    // @Increment: 0.01
+    // @User: Standard
+    AP_GROUPINFO("_TURN_MAX_G", 13, AR_AttitudeControl, _turn_lateral_G_max, 0.6f),
 
     AP_GROUPEND
 };
@@ -352,6 +492,14 @@ float AR_AttitudeControl::get_steering_out_rate(float desired_rate, bool motor_l
     if (is_positive(_steer_rate_max)) {
         const float steer_rate_max_rad = radians(_steer_rate_max);
         _desired_turn_rate = constrain_float(_desired_turn_rate, -steer_rate_max_rad, steer_rate_max_rad);
+    }
+
+    // G limit based on speed
+    float speed;
+    if (get_forward_speed(speed)) {
+        // do not limit to less than 1 deg/s
+        const float turn_rate_max = MAX(get_turn_rate_from_lat_accel(get_turn_lat_accel_max(), fabsf(speed)), radians(1.0f));
+        _desired_turn_rate = constrain_float(_desired_turn_rate, -turn_rate_max, turn_rate_max);
     }
 
     // set PID's dt
@@ -503,6 +651,11 @@ float AR_AttitudeControl::get_throttle_out_stop(bool motor_limit_low, bool motor
         _stop_last_ms = now;
         // set last time speed controller was run so accelerations are limited
         _speed_last_ms = now;
+        // reset filters and I-term
+        _throttle_speed_pid.reset_filter();
+        _throttle_speed_pid.reset_I();
+        // ensure desired speed is zero
+        _desired_speed = 0.0f;
         return 0.0f;
     }
 
@@ -601,7 +754,7 @@ bool AR_AttitudeControl::get_forward_speed(float &speed) const
     if (!_ahrs.get_velocity_NED(velocity)) {
         // use less accurate GPS, assuming entire length is along forward/back axis of vehicle
         if (AP::gps().status() >= AP_GPS::GPS_OK_FIX_3D) {
-            if (fabsf(wrap_180_cd(_ahrs.yaw_sensor - AP::gps().ground_course_cd())) <= 9000) {
+            if (abs(wrap_180_cd(_ahrs.yaw_sensor - AP::gps().ground_course_cd())) <= 9000) {
                 speed = AP::gps().ground_speed();
             } else {
                 speed = -AP::gps().ground_speed();

@@ -3,12 +3,17 @@ from __future__ import print_function
 import re
 from param import known_param_fields, known_units
 from emit import Emit
-import cgi
+try:
+    from cgi import escape as cescape
+except Exception:
+    from html import escape as cescape
 
 
 # Emit docs in a RST format
 class RSTEmit(Emit):
     def blurb(self):
+        if self.sitl:
+            return """SITL parameters"""
         return """This is a complete list of the parameters which can be set (e.g. via the MAVLink protocol) to control vehicle behaviour. They are stored in persistent storage on the vehicle.
 
 This list is automatically generated from the latest ardupilot source code, and so may contain parameters which are not yet in the stable released versions of the code.
@@ -17,12 +22,17 @@ This list is automatically generated from the latest ardupilot source code, and 
     def toolname(self):
         return "Tools/autotest/param_metadata/param_parse.py"
 
-    def __init__(self):
-        Emit.__init__(self)
+    def __init__(self, *args, **kwargs):
+        Emit.__init__(self, *args, **kwargs)
         output_fname = 'Parameters.rst'
         self.f = open(output_fname, mode='w')
         self.spacer = re.compile("^", re.MULTILINE)
         self.rstescape = re.compile("([^a-zA-Z0-9\n 	])")
+        if self.sitl:
+            parameterlisttype = "SITL Parameter List"
+        else:
+             parameterlisttype = "Complete Parameter List"
+        parameterlisttype += "\n" + "=" * len(parameterlisttype)
         self.preamble = """.. Dynamically generated list of documented parameters
 .. This page was generated using {toolname}
 
@@ -31,12 +41,12 @@ This list is automatically generated from the latest ardupilot source code, and 
 
 .. _parameters:
 
-Complete Parameter List
-=======================
+{parameterlisttype}
 
 {blurb}
 
 """.format(blurb=self.escape(self.blurb()),
+           parameterlisttype=parameterlisttype,
            toolname=self.escape(self.toolname()))
         self.t = ''
 
@@ -180,8 +190,8 @@ Complete Parameter List
         return self.tablify(rows, headings=render_info["headings"])
 
     def emit(self, g):
-        tag = '%s Parameters' % self.escape(g.name)
-        reference = "parameters_" + g.name
+        tag = '%s Parameters' % self.escape(g.reference)
+        reference = "parameters_" + g.reference
 
         field_table_info = {
             "Values": {
@@ -209,10 +219,7 @@ Complete Parameter List
             # Get param path if defined (i.e. is duplicate parameter)
             param_path = getattr(param, 'path', '')
 
-            if self.annotate_with_vehicle:
-                name = param.name
-            else:
-                name = param.name.split(':')[-1]
+            name = param.name.split(':')[-1]
 
             tag_param_path = ' (%s)' % param_path if param_path else ''
             tag = '%s%s: %s' % (self.escape(name), self.escape(tag_param_path), self.escape(param.DisplayName),)
@@ -220,10 +227,7 @@ Complete Parameter List
             tag = tag.strip()
             reference = param.name
             # remove e.g. "ArduPlane:" from start of parameter name:
-            if self.annotate_with_vehicle:
-                reference = g.name + "_" + reference.split(":")[-1]
-            else:
-                reference = reference.split(":")[-1]
+            reference = reference.split(":")[-1]
             if param_path:
                 reference += '__' + param_path
 
@@ -241,7 +245,7 @@ Complete Parameter List
 
             headings = []
             row = []
-            for field in param.__dict__.keys():
+            for field in sorted(param.__dict__.keys()):
                 if field not in ['name', 'DisplayName', 'Description', 'User'] and field in known_param_fields:
                     headings.append(field)
                     if field in field_table_info and Emit.prog_values_field.match(param.__dict__[field]):
@@ -256,9 +260,9 @@ Complete Parameter List
                             # convert the abreviated unit into a full
                             # textual one:
                             units = known_units[abreviated_units]
-                            row.append(cgi.escape(units))
+                            row.append(cescape(units))
                     else:
-                        row.append(cgi.escape(param.__dict__[field]))
+                        row.append(cescape(param.__dict__[field]))
             if len(row):
                 ret += "\n\n" + self.tablify([row], headings=headings) + "\n\n"
         self.t += ret + "\n"

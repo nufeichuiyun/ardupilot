@@ -31,8 +31,7 @@ public:
 										int32_t ptchMinCO_cd,
 										int16_t throttle_nudge,
                                         float hgt_afe,
-										float load_factor,
-                                        bool soaring_active) = 0;
+										float load_factor) = 0;
 
 	// demanded throttle in percentage
 	// should return 0 to 100
@@ -51,6 +50,9 @@ public:
 	// return maximum climb rate
 	virtual float get_max_climbrate(void) const = 0;
 
+    // return maximum sink rate (+ve number)
+    virtual float get_max_sinkrate(void) const = 0;
+
     // added to let SoaringController reset pitch integrator to zero
     virtual void reset_pitch_I(void) = 0;
     
@@ -62,6 +64,15 @@ public:
 
 	// set path_proportion accessor
     virtual void set_path_proportion(float path_proportion) = 0;
+
+    // reset on next loop
+    virtual void reset(void) = 0;
+
+    // set gliding requested flag
+    virtual void set_gliding_requested_flag(bool gliding_requested) = 0;
+
+    // set propulsion failed flag
+    virtual void set_propulsion_failed_flag(bool propulsion_failed) = 0;
 
 	// add new controllers to this enum. Users can then
 	// select which controller to use by setting the

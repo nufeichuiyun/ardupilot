@@ -107,6 +107,21 @@ void AP_GPS_MAV::handle_msg(const mavlink_message_t &msg)
             if (have_yaw) {
                 state.gps_yaw = wrap_360(packet.yaw*0.01);
                 state.have_gps_yaw = true;
+                state.gps_yaw_configured = true;
+            }
+
+            if (packet.fix_type >= 3 && packet.time_week > 0) {
+                /*
+                  use the millisecond timestamp from the GPS_INPUT
+                  packet into jitter correction to get a local
+                  timestamp corrected for transport jitter
+                */
+                if (first_week == 0) {
+                    first_week = packet.time_week;
+                }
+                uint32_t timestamp_ms = (packet.time_week - first_week) * AP_MSEC_PER_WEEK + packet.time_week_ms;
+                uint32_t corrected_ms = jitter.correct_offboard_timestamp_msec(timestamp_ms, AP_HAL::millis());
+                state.uart_timestamp_ms = corrected_ms;
             }
 
             state.num_sats = packet.satellites_visible;
@@ -131,15 +146,15 @@ void AP_GPS_MAV::handle_msg(const mavlink_message_t &msg)
             state.hdop = MIN(packet.eph, GPS_UNKNOWN_DOP);
             state.vdop = MIN(packet.epv, GPS_UNKNOWN_DOP);
             if (packet.vel < 65535) {
-                state.ground_speed = packet.vel / 100.0f;
+                state.ground_speed = packet.vel * 0.01f;
             }
-            Vector3f vel(packet.vn/100.0f, packet.ve/100.0f, packet.vd/100.0f);
+            Vector3f vel(packet.vn*0.01f, packet.ve*0.01f, packet.vd*0.01f);
             state.velocity = vel;
             if (packet.vd != 0) {
                 state.have_vertical_velocity = true;
             }
             if (packet.cog < 36000) {
-                state.ground_course = packet.cog / 100.0f;
+                state.ground_course = packet.cog * 0.01f;
             }
             state.have_speed_accuracy = false;
             state.have_horizontal_accuracy = false;

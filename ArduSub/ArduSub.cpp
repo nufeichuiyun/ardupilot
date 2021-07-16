@@ -26,7 +26,7 @@
  */
 const AP_Scheduler::Task Sub::scheduler_tasks[] = {
     SCHED_TASK(fifty_hz_loop,         50,     75),
-    SCHED_TASK(update_GPS,            50,    200),
+    SCHED_TASK_CLASS(AP_GPS, &sub.gps, update, 50, 200),
 #if OPTFLOW == ENABLED
     SCHED_TASK_CLASS(OpticalFlow,          &sub.optflow,             update,         200, 160),
 #endif
@@ -40,11 +40,14 @@ const AP_Scheduler::Task Sub::scheduler_tasks[] = {
     SCHED_TASK(one_hz_loop,            1,    100),
     SCHED_TASK_CLASS(GCS,                 (GCS*)&sub._gcs,   update_receive,     400, 180),
     SCHED_TASK_CLASS(GCS,                 (GCS*)&sub._gcs,   update_send,        400, 550),
-#if MOUNT == ENABLED
+#if AC_FENCE == ENABLED
+    SCHED_TASK_CLASS(AC_Fence,            &sub.fence,        update,              10, 100),
+#endif
+#if HAL_MOUNT_ENABLED
     SCHED_TASK_CLASS(AP_Mount,            &sub.camera_mount, update,              50,  75),
 #endif
 #if CAMERA == ENABLED
-    SCHED_TASK_CLASS(AP_Camera,           &sub.camera,       update_trigger,      50,  75),
+    SCHED_TASK_CLASS(AP_Camera,           &sub.camera,       update,              50,  75),
 #endif
     SCHED_TASK(ten_hz_logging_loop,   10,    350),
     SCHED_TASK(twentyfive_hz_logging, 25,    110),
@@ -75,27 +78,19 @@ const AP_Scheduler::Task Sub::scheduler_tasks[] = {
 #ifdef USERHOOK_SUPERSLOWLOOP
     SCHED_TASK(userhook_SuperSlowLoop, 1,   75),
 #endif
+    SCHED_TASK(read_airspeed,          10,    100),
 };
 
+void Sub::get_scheduler_tasks(const AP_Scheduler::Task *&tasks,
+                                 uint8_t &task_count,
+                                 uint32_t &log_bit)
+{
+    tasks = &scheduler_tasks[0];
+    task_count = ARRAY_SIZE(scheduler_tasks);
+    log_bit = MASK_LOG_PM;
+}
+
 constexpr int8_t Sub::_failsafe_priorities[5];
-
-void Sub::setup()
-{
-    // Load the default values of variables listed in var_info[]s
-    AP_Param::setup_sketch_defaults();
-
-    init_ardupilot();
-
-    // initialise the main loop scheduler
-    scheduler.init(&scheduler_tasks[0], ARRAY_SIZE(scheduler_tasks), MASK_LOG_PM);
-}
-
-void Sub::loop()
-{
-    scheduler.loop();
-    G_Dt = scheduler.get_loop_period_s();
-}
-
 
 // Main loop - 400hz
 void Sub::fast_loop()
@@ -103,7 +98,8 @@ void Sub::fast_loop()
     // update INS immediately to get current gyro data populated
     ins.update();
 
-    if (control_mode != MANUAL) { //don't run rate controller in manual mode
+    //don't run rate controller in manual or motordetection modes
+    if (control_mode != MANUAL && control_mode != MOTOR_DETECT) {
         // run low level rate controllers that only require IMU data
         attitude_control.rate_controller_run();
     }
@@ -131,7 +127,7 @@ void Sub::fast_loop()
     // check if we've reached the surface or bottom
     update_surface_and_bottom_detector();
 
-#if MOUNT == ENABLED
+#if HAL_MOUNT_ENABLED
     // camera mount's fast update
     camera_mount.update_fast();
 #endif
@@ -140,6 +136,8 @@ void Sub::fast_loop()
     if (should_log(MASK_LOG_ANY)) {
         Log_Sensor_Health();
     }
+
+    AP_Vehicle::fast_loop();
 }
 
 // 50 Hz tasks
@@ -180,7 +178,7 @@ void Sub::ten_hz_logging_loop()
     // log attitude data if we're not already logging at the higher rate
     if (should_log(MASK_LOG_ATTITUDE_MED) && !should_log(MASK_LOG_ATTITUDE_FAST)) {
         Log_Write_Attitude();
-        logger.Write_Rate(&ahrs_view, motors, attitude_control, pos_control);
+        ahrs_view.Write_Rate(motors, attitude_control, pos_control);
         if (should_log(MASK_LOG_PID)) {
             logger.Write_PID(LOG_PIDR_MSG, attitude_control.get_rate_roll_pid().get_pid_info());
             logger.Write_PID(LOG_PIDP_MSG, attitude_control.get_rate_pitch_pid().get_pid_info());
@@ -197,11 +195,11 @@ void Sub::ten_hz_logging_loop()
     if (should_log(MASK_LOG_RCOUT)) {
         logger.Write_RCOUT();
     }
-    if (should_log(MASK_LOG_NTUN) && mode_requires_GPS(control_mode)) {
+    if (should_log(MASK_LOG_NTUN) && (mode_requires_GPS(control_mode) || !mode_has_manual_throttle(control_mode))) {
         pos_control.write_log();
     }
     if (should_log(MASK_LOG_IMU) || should_log(MASK_LOG_IMU_FAST) || should_log(MASK_LOG_IMU_RAW)) {
-        logger.Write_Vibration();
+        AP::ins().Write_Vibration();
     }
     if (should_log(MASK_LOG_CTUN)) {
         attitude_control.control_monitor_log();
@@ -214,7 +212,7 @@ void Sub::twentyfive_hz_logging()
 {
     if (should_log(MASK_LOG_ATTITUDE_FAST)) {
         Log_Write_Attitude();
-        logger.Write_Rate(&ahrs_view, motors, attitude_control, pos_control);
+        ahrs_view.Write_Rate(motors, attitude_control, pos_control);
         if (should_log(MASK_LOG_PID)) {
             logger.Write_PID(LOG_PIDR_MSG, attitude_control.get_rate_roll_pid().get_pid_info());
             logger.Write_PID(LOG_PIDP_MSG, attitude_control.get_rate_pitch_pid().get_pid_info());
@@ -225,7 +223,7 @@ void Sub::twentyfive_hz_logging()
 
     // log IMU data if we're not already logging at the higher rate
     if (should_log(MASK_LOG_IMU) && !should_log(MASK_LOG_IMU_RAW)) {
-        logger.Write_IMU();
+        AP::ins().Write_IMU();
     }
 }
 
@@ -264,7 +262,7 @@ void Sub::one_hz_loop()
     AP_Notify::flags.flying = motors.armed();
 
     if (should_log(MASK_LOG_ANY)) {
-        Log_Write_Data(DATA_AP_STATE, ap.value);
+        Log_Write_Data(LogDataID::AP_STATE, ap.value);
     }
 
     if (!motors.armed()) {
@@ -286,31 +284,7 @@ void Sub::one_hz_loop()
 
     // need to set "likely flying" when armed to allow for compass
     // learning to run
-    ahrs.set_likely_flying(hal.util->get_soft_armed());
-}
-
-// called at 50hz
-void Sub::update_GPS()
-{
-    static uint32_t last_gps_reading[GPS_MAX_INSTANCES];   // time of last gps message
-    bool gps_updated = false;
-
-    gps.update();
-
-    // log after every gps message
-    for (uint8_t i=0; i<gps.num_sensors(); i++) {
-        if (gps.last_message_time_ms(i) != last_gps_reading[i]) {
-            last_gps_reading[i] = gps.last_message_time_ms(i);
-            gps_updated = true;
-            break;
-        }
-    }
-
-    if (gps_updated) {
-#if CAMERA == ENABLED
-        camera.update();
-#endif
-    }
+    set_likely_flying(hal.util->get_soft_armed());
 }
 
 void Sub::read_AHRS()
@@ -330,6 +304,11 @@ void Sub::update_altitude()
 
     if (should_log(MASK_LOG_CTUN)) {
         Log_Write_Control_Tuning();
+#if HAL_GYROFFT_ENABLED
+        gyro_fft.write_log_messages();
+#else
+        write_notch_log_messages();
+#endif
     }
 }
 
@@ -344,6 +323,30 @@ bool Sub::control_check_barometer()
         return false;
     }
 #endif
+    return true;
+}
+
+// vehicle specific waypoint info helpers
+bool Sub::get_wp_distance_m(float &distance) const
+{
+    // see GCS_MAVLINK_Sub::send_nav_controller_output()
+    distance = sub.wp_nav.get_wp_distance_to_destination() * 0.01;
+    return true;
+}
+
+// vehicle specific waypoint info helpers
+bool Sub::get_wp_bearing_deg(float &bearing) const
+{
+    // see GCS_MAVLINK_Sub::send_nav_controller_output()
+    bearing = sub.wp_nav.get_wp_bearing_to_destination() * 0.01;
+    return true;
+}
+
+// vehicle specific waypoint info helpers
+bool Sub::get_wp_crosstrack_error_m(float &xtrack_error) const
+{
+    // no crosstrack error reported, see GCS_MAVLINK_Sub::send_nav_controller_output()
+    xtrack_error = 0;
     return true;
 }
 

@@ -36,7 +36,13 @@ public:
       A value of zero cancels the previous expected delay
      */
     virtual void     expect_delay_ms(uint32_t ms) { }
-    
+
+    /*
+      return true if we are in a period of expected delay. This can be
+      used to suppress error messages
+     */
+    virtual bool     in_expected_delay(void) const { return false; }
+
     /*
       end the priority boost from delay_microseconds_boost()
      */
@@ -60,7 +66,9 @@ public:
     virtual void     register_timer_failsafe(AP_HAL::Proc,
                                              uint32_t period_us) = 0;
 
-    virtual void     system_initialized() = 0;
+    // check and set the startup state
+    virtual void     set_system_initialized() = 0;
+    virtual bool     is_system_initialized() = 0;
 
     virtual void     reboot(bool hold_in_bootloader) = 0;
 
@@ -100,6 +108,7 @@ public:
         PRIORITY_I2C,
         PRIORITY_CAN,
         PRIORITY_TIMER,
+        PRIORITY_RCOUT,
         PRIORITY_RCIN,
         PRIORITY_IO,
         PRIORITY_UART,

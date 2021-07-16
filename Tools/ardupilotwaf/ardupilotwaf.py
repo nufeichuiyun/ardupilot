@@ -25,6 +25,8 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_Baro',
     'AP_BattMonitor',
     'AP_BoardConfig',
+    'AP_Camera',
+    'AP_CANManager',
     'AP_Common',
     'AP_Compass',
     'AP_Declination',
@@ -34,6 +36,7 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_InertialSensor',
     'AP_Math',
     'AP_Mission',
+    'AP_DAL',
     'AP_NavEKF',
     'AP_NavEKF2',
     'AP_NavEKF3',
@@ -68,6 +71,8 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_SBusOut',
     'AP_IOMCU',
     'AP_Parachute',
+    'AP_PiccoloCAN',
+    'AP_PiccoloCAN/piccolo_protocol',
     'AP_RAMTRON',
     'AP_RCProtocol',
     'AP_Radio',
@@ -86,6 +91,21 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
     'AP_ToshibaCAN',
     'AP_NMEA_Output',
     'AP_Filesystem',
+    'AP_ADSB',
+    'AC_PID',
+    'AP_SerialLED',
+    'AP_EFI',
+    'AP_Hott_Telem',
+    'AP_ESC_Telem',
+    'AP_Stats',
+    'AP_GyroFFT',
+    'AP_RCTelemetry',
+    'AP_Generator',
+    'AP_MSP',
+    'AP_OLC',
+    'AP_WheelEncoder',
+    'AP_ExternalAHRS',
+    'AP_VideoTX',
 ]
 
 def get_legacy_defines(sketch_name):
@@ -109,6 +129,8 @@ def ap_autoconfigure(execute_method):
         """
         Wraps :py:func:`waflib.Context.Context.execute` on the context class
         """
+        if 'tools/' in self.targets:
+            raise Errors.WafError('\"tools\" name has been replaced with \"tool\" for build please use that!')
         if not Configure.autoconfig:
             return execute_method(self)
 
@@ -232,7 +254,6 @@ def ap_program(bld,
     if use_legacy_defines:
         kw['defines'].extend(get_legacy_defines(bld.path.name))
 
-    kw['cxxflags'] = kw.get('cxxflags', []) + ['-include', 'ap_config.h']
     kw['features'] = kw.get('features', []) + bld.env.AP_PROGRAM_FEATURES
 
     program_groups = Utils.to_list(program_groups)
@@ -369,6 +390,14 @@ def ap_find_benchmarks(bld, use=[]):
         return
 
     includes = [bld.srcnode.abspath() + '/benchmarks/']
+    to_remove = '-Werror=suggest-override'
+    if to_remove in bld.env.CXXFLAGS:
+        need_remove = True
+    else:
+        need_remove = False
+    if need_remove:
+        while to_remove in bld.env.CXXFLAGS:
+            bld.env.CXXFLAGS.remove(to_remove)
 
     for f in bld.path.ant_glob(incl='*.cpp'):
         ap_program(
@@ -507,6 +536,13 @@ platforms may support this. Example: `waf copter --upload` means "build
 arducopter and upload it to my board".
 ''')
 
+    g.add_option('--upload-port',
+        action='store',
+        dest='upload_port',
+        default=None,
+        help='''Specify the port to be used with the --upload option. For example a port of /dev/ttyS10 indicates that serial port 10 shuld be used.
+''')
+
     g = opt.ap_groups['check']
 
     g.add_option('--check-verbose',
@@ -523,6 +559,13 @@ information across clean commands, so that that information is changed
 only when really necessary. Also, some tasks that don't really produce
 files persist their signature. This option avoids that behavior when
 cleaning the build.
+''')
+
+    g.add_option('--asan',
+        action='store_true',
+        help='''Build using the macOS clang Address Sanitizer. In order to run with
+Address Sanitizer support llvm-symbolizer is required to be on the PATH.
+This option is only supported on macOS versions of clang.
 ''')
 
 def build(bld):

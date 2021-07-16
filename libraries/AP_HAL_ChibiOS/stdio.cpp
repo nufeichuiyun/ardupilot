@@ -29,24 +29,38 @@
 #include <ctype.h>
 #include "hwdef/common/stdio.h"
 #include <AP_HAL/AP_HAL.h>
+#if HAL_USE_SERIAL_USB == TRUE
+#include <AP_HAL_ChibiOS/hwdef/common/usbcfg.h>
+#include "UARTDriver.h"
+#endif
 
+#ifndef HAL_BOOTLOADER_BUILD
 extern const AP_HAL::HAL& hal;
+#endif
 
 int __wrap_snprintf(char *str, size_t size, const char *fmt, ...)
 {
    va_list arg;
    int done;
- 
+
    va_start (arg, fmt);
+#ifdef HAL_BOOTLOADER_BUILD
+   done = chvsnprintf(str, size, fmt, arg);
+#else
    done =  hal.util->vsnprintf(str, size, fmt, arg);
+#endif
    va_end (arg);
- 
+
    return done;
 }
 
 int __wrap_vsnprintf(char *str, size_t size, const char *fmt, va_list ap)
 {
-    return hal.util->vsnprintf(str, size, fmt, ap);
+#ifdef HAL_BOOTLOADER_BUILD
+    return chvsnprintf(str, size, fmt, ap);
+#else
+  return hal.util->vsnprintf(str, size, fmt, ap);
+#endif
 }
 
 int __wrap_vasprintf(char **strp, const char *fmt, va_list ap)
@@ -76,7 +90,10 @@ int __wrap_asprintf(char **strp, const char *fmt, ...)
 int __wrap_vprintf(const char *fmt, va_list arg)
 {
 #ifdef HAL_STDOUT_SERIAL
-  return chvprintf ((BaseSequentialStream*)&HAL_STDOUT_SERIAL, fmt, arg);
+  return chvprintf((BaseSequentialStream*)&HAL_STDOUT_SERIAL, fmt, arg);
+#elif HAL_USE_SERIAL_USB == TRUE && !defined(HAL_BOOTLOADER_BUILD)
+  usb_initialise();
+  return chvprintf((BaseSequentialStream*)&SDU1, fmt, arg);
 #else
   (void)arg;
   return strlen(fmt);
@@ -91,11 +108,11 @@ int __wrap_printf(const char *fmt, ...)
 #ifndef HAL_NO_PRINTF
    va_list arg;
    int done;
- 
+
    va_start (arg, fmt);
    done =  vprintf_console_hook(fmt, arg);
    va_end (arg);
- 
+
    return done;
 #else
    (void)fmt;
@@ -112,11 +129,11 @@ int __wrap_fprintf(void *f, const char *fmt, ...)
 #ifndef HAL_NO_PRINTF
    va_list arg;
    int done;
- 
+
    va_start (arg, fmt);
    done =  vprintf_console_hook(fmt, arg);
    va_end (arg);
- 
+
    return done;
 #else
    (void)fmt;
@@ -132,7 +149,7 @@ int __wrap_scanf(const char *fmt, ...)
 }
 
 extern "C" {
-    // alias fiprintf() to fprintf(). This saves flash space
-    int __wrap_fiprintf(const char *fmt, ...) __attribute__((alias("__wrap_fprintf")));
+    // empty function fiprintf(), saves flash space for unused code path
+    int __wrap_fiprintf(const char *fmt, ...);
+    int __wrap_fiprintf(const char *fmt, ...) { return -1; }
 }
-

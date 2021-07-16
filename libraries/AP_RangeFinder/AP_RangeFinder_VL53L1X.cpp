@@ -28,11 +28,8 @@
 
 extern const AP_HAL::HAL& hal;
 
-/*
-   The constructor also initializes the rangefinder. Note that this
-   constructor is not called until detect() returns true, so we
-   already know that we should setup the rangefinder
-*/
+static const uint8_t MEASUREMENT_TIME_MS = 50; // Start continuous readings at a rate of one measurement every 50 ms
+
 AP_RangeFinder_VL53L1X::AP_RangeFinder_VL53L1X(RangeFinder::RangeFinder_State &_state, AP_RangeFinder_Params &_params, AP_HAL::OwnPtr<AP_HAL::I2CDevice> _dev)
     : AP_RangeFinder_Backend(_state, _params)
     , dev(std::move(_dev)) {}
@@ -42,7 +39,7 @@ AP_RangeFinder_VL53L1X::AP_RangeFinder_VL53L1X(RangeFinder::RangeFinder_State &_
    trying to take a reading on I2C. If we get a result the sensor is
    there.
 */
-AP_RangeFinder_Backend *AP_RangeFinder_VL53L1X::detect(RangeFinder::RangeFinder_State &_state, AP_RangeFinder_Params &_params, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev)
+AP_RangeFinder_Backend *AP_RangeFinder_VL53L1X::detect(RangeFinder::RangeFinder_State &_state, AP_RangeFinder_Params &_params, AP_HAL::OwnPtr<AP_HAL::I2CDevice> dev, DistanceMode mode)
 {
     if (!dev) {
         return nullptr;
@@ -58,7 +55,7 @@ AP_RangeFinder_Backend *AP_RangeFinder_VL53L1X::detect(RangeFinder::RangeFinder_
 
     sensor->dev->get_semaphore()->take_blocking();
 
-    if (!sensor->check_id() || !sensor->init()) {
+    if (!sensor->check_id() || !sensor->init(mode)) {
         sensor->dev->get_semaphore()->give();
         delete sensor;
         return nullptr;
@@ -86,14 +83,32 @@ bool AP_RangeFinder_VL53L1X::check_id(void)
     return true;
 }
 
+bool AP_RangeFinder_VL53L1X::reset(void) {
+    if (!write_register(SOFT_RESET, 0x00)) {
+        return false;
+    }
+    hal.scheduler->delay_microseconds(100);
+    if (!write_register(SOFT_RESET, 0x01)) {
+        return false;
+    }
+    hal.scheduler->delay(1000);
+    return true;
+}
+
 /*
   initialise sensor
  */
-bool AP_RangeFinder_VL53L1X::init()
+bool AP_RangeFinder_VL53L1X::init(DistanceMode mode)
 {
+    // we need to do resets and delays in order to configure the sensor, don't do this if we are trying to fast boot
+    if (hal.util->was_watchdog_armed()) {
+        return false;
+    }
+
     uint8_t pad_i2c_hv_extsup_config = 0;
     uint16_t mm_config_outer_offset_mm = 0;
-    if (!(// setup for 2.8V operation
+    if (!(reset() && // reset the chip, we make assumptions later on that we are on a clean power on of the sensor
+          // setup for 2.8V operation
           read_register(PAD_I2C_HV__EXTSUP_CONFIG, pad_i2c_hv_extsup_config) &&
           write_register(PAD_I2C_HV__EXTSUP_CONFIG,
                          pad_i2c_hv_extsup_config | 0x01) &&
@@ -138,19 +153,19 @@ bool AP_RangeFinder_VL53L1X::init()
           write_register16(DSS_CONFIG__MANUAL_EFFECTIVE_SPADS_SELECT, 200 << 8) &&
           write_register(DSS_CONFIG__ROI_MODE_CONTROL, 2) && // REQUESTED_EFFFECTIVE_SPADS
           read_register16(MM_CONFIG__OUTER_OFFSET_MM, mm_config_outer_offset_mm) &&
-          setDistanceMode(Long) &&
+          setDistanceMode(mode) &&
           setMeasurementTimingBudget(40000) &&
           // the API triggers this change in VL53L1_init_and_start_range() once a
           // measurement is started; assumes MM1 and MM2 are disabled
           write_register16(ALGO__PART_TO_PART_RANGE_OFFSET_MM, mm_config_outer_offset_mm * 4) &&
           // set continuous mode
-          startContinuous(50)
+          startContinuous(MEASUREMENT_TIME_MS)
           )) {
               return false;
           }
 
-    // call timer() every 50ms. We expect new data to be available every 50ms
-    dev->register_periodic_callback(50000,
+    // call timer() every MEASUREMENT_TIME_MS. We expect new data to be available every MEASUREMENT_TIME_MS
+    dev->register_periodic_callback(MEASUREMENT_TIME_MS * 1000,
                                     FUNCTOR_BIND_MEMBER(&AP_RangeFinder_VL53L1X::timer, void));
 
     return true;
@@ -167,7 +182,7 @@ bool AP_RangeFinder_VL53L1X::setDistanceMode(DistanceMode distance_mode)
     }
 
     switch (distance_mode) {
-        case Short:
+      case DistanceMode::Short:
             // from VL53L1_preset_mode_standard_ranging_short_range()
 
             if (!(// timing config
@@ -185,7 +200,7 @@ bool AP_RangeFinder_VL53L1X::setDistanceMode(DistanceMode distance_mode)
 
             break;
 
-        case Medium:
+        case DistanceMode::Medium:
             // from VL53L1_preset_mode_standard_ranging()
 
             if (!(// timing config
@@ -203,7 +218,7 @@ bool AP_RangeFinder_VL53L1X::setDistanceMode(DistanceMode distance_mode)
 
             break;
 
-        case Long:
+        case DistanceMode::Long:
             // from VL53L1_preset_mode_standard_ranging_long_range()
 
             if (!(// timing config
@@ -387,7 +402,7 @@ uint32_t AP_RangeFinder_VL53L1X::timeoutMicrosecondsToMclks(uint32_t timeout_us,
 // Calculate macro period in microseconds (12.12 format) with given VCSEL period
 // assumes fast_osc_frequency has been read and stored
 // based on VL53L1_calc_macro_period_us()
-uint32_t AP_RangeFinder_VL53L1X::calcMacroPeriod(uint8_t vcsel_period)
+uint32_t AP_RangeFinder_VL53L1X::calcMacroPeriod(uint8_t vcsel_period) const
 {
     // from VL53L1_calc_pll_period_us()
     // fast osc frequency in 4.12 format; PLL period in 0.24 format
@@ -555,6 +570,6 @@ void AP_RangeFinder_VL53L1X::update(void)
         counter = 0;
     } else if (AP_HAL::millis() - state.last_reading_ms > 200) {
         // if no updates for 0.2s set no-data
-        set_status(RangeFinder::RangeFinder_NoData);
+        set_status(RangeFinder::Status::NoData);
     }
 }

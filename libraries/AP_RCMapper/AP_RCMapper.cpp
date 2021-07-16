@@ -38,31 +38,40 @@ const AP_Param::GroupInfo RCMapper::var_info[] = {
     // @RebootRequired: True
     AP_GROUPINFO("YAW",         3, RCMapper, _ch_yaw, 4),
 
-    // @Param: FORWARD
+    // @Param{Rover,Sub}: FORWARD
     // @DisplayName: Forward channel
     // @Description: Forward channel number. This is useful when you have a RC transmitter that can't change the channel order easily. Forward is normally on channel 5, but you can move it to any channel with this parameter. Reboot is required for changes to take effect.
     // @Range: 1 8
     // @Increment: 1
     // @User: Advanced
     // @RebootRequired: True
-    // @Values{Sub}: 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8
     AP_GROUPINFO_FRAME("FORWARD",    4, RCMapper, _ch_forward, 6, AP_PARAM_FRAME_SUB),
 
-    // @Param: LATERAL
+    // @Param{Rover,Sub}: LATERAL
     // @DisplayName: Lateral channel
     // @Description: Lateral channel number. This is useful when you have a RC transmitter that can't change the channel order easily. Lateral is normally on channel 6, but you can move it to any channel with this parameter. Reboot is required for changes to take effect.
     // @Range: 1 8
     // @Increment: 1
     // @User: Advanced
     // @RebootRequired: True
-    // @Values{Sub}: 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8
     AP_GROUPINFO_FRAME("LATERAL",    5, RCMapper, _ch_lateral, 7, AP_PARAM_FRAME_SUB),
 
     AP_GROUPEND
 };
 
+// singleton instance
+RCMapper *RCMapper::_singleton;
+
 // object constructor.
 RCMapper::RCMapper(void)
 {
+    if (_singleton != nullptr) {
+        AP_HAL::panic("RCMapper must be singleton");
+    }
     AP_Param::setup_object_defaults(this, var_info);
+    _singleton = this;
+}
+
+RCMapper *AP::rcmap() {
+    return RCMapper::get_singleton();
 }

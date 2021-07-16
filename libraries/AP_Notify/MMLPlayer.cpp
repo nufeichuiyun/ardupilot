@@ -6,9 +6,9 @@
 #include <AP_Math/AP_Math.h>
 #include <AP_Notify/AP_Notify.h>
 
-#if HAL_WITH_UAVCAN
+#if HAL_CANMANAGER_ENABLED
 #include <AP_UAVCAN/AP_UAVCAN.h>
-#include <AP_BoardConfig/AP_BoardConfig_CAN.h>
+#include <AP_CANManager/AP_CANManager.h>
 #endif
 
 extern const AP_HAL::HAL& hal;
@@ -21,7 +21,7 @@ void MMLPlayer::update()
     }
 }
 
-void MMLPlayer::play(const char* string)
+void MMLPlayer::prepare_to_play_string(const char* string)
 {
     stop();
 
@@ -36,6 +36,12 @@ void MMLPlayer::play(const char* string)
     _repeat = false;
 
     _playing = true;
+    _note_duration_us = 0;
+}
+
+void MMLPlayer::play(const char* string)
+{
+    prepare_to_play_string(string);
     next_action();
 }
 
@@ -58,13 +64,14 @@ void MMLPlayer::start_note(float duration, float frequency, float volume)
     _note_duration_us = duration*1e6;
     hal.util->toneAlarm_set_buzzer_tone(frequency, volume, _note_duration_us/1000U);
 
-#if HAL_WITH_UAVCAN
+#if HAL_CANMANAGER_ENABLED
     // support CAN buzzers too
     uint8_t can_num_drivers = AP::can().get_num_drivers();
 
     for (uint8_t i = 0; i < can_num_drivers; i++) {
         AP_UAVCAN *uavcan = AP_UAVCAN::get_uavcan(i);
-        if (uavcan != nullptr) {
+        if (uavcan != nullptr &&
+            (AP::notify().get_buzzer_types() & AP_Notify::Notify_Buzz_UAVCAN)) {
             uavcan->set_buzzer_tone(frequency, _note_duration_us*1.0e-6);
         }
     }
@@ -100,7 +107,7 @@ size_t MMLPlayer::next_dots()
     return ret;
 }
 
-float MMLPlayer::rest_duration(uint32_t rest_length, uint8_t dots)
+float MMLPlayer::rest_duration(uint32_t rest_length, uint8_t dots) const
 {
     float whole_note_period = 240.0f / _tempo;
     if (rest_length == 0) {
@@ -108,7 +115,7 @@ float MMLPlayer::rest_duration(uint32_t rest_length, uint8_t dots)
     }
 
     float rest_period = whole_note_period/rest_length;
-    float dot_extension = rest_period/2;
+    float dot_extension = rest_period * 0.5f;
 
     while (dots--) {
         rest_period += dot_extension;
@@ -133,7 +140,11 @@ void MMLPlayer::next_action()
         char c = next_char();
         if (c == '\0') {
             if (_repeat) {
-                play(_string);
+                // don't "play" here, as we may have been called from
+                // there, and it turns out infinite recursion on
+                // invalid strings is suboptimal.  The next call to
+                // update() will push things out as appropriate.
+                prepare_to_play_string(_string);
             } else {
                 stop();
             }
@@ -289,7 +300,7 @@ void MMLPlayer::next_action()
     }
     note_period -= _silence_duration;
 
-    float dot_extension = note_period/2;
+    float dot_extension = note_period * 0.5f;
     uint8_t dots = next_dots();
     while (dots--) {
         note_period += dot_extension;

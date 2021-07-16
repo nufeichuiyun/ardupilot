@@ -1,7 +1,7 @@
 #include "Copter.h"
 #include <AP_Notify/AP_Notify.h>
 
-#if ADSB_ENABLED == ENABLED
+#if HAL_ADSB_ENABLED
 void Copter::avoidance_adsb_update(void)
 {
     adsb.update();
@@ -20,21 +20,21 @@ MAV_COLLISION_ACTION AP_Avoidance_Copter::handle_avoidance(const AP_Avoidance::O
         copter.failsafe.adsb = true;
         failsafe_state_change = true;
         // record flight mode in case it's required for the recovery
-        prev_control_mode = copter.control_mode;
+        prev_control_mode = copter.flightmode->mode_number();
     }
 
     // take no action in some flight modes
-    if (copter.control_mode == LAND ||
+    if (copter.flightmode->mode_number() == Mode::Number::LAND ||
 #if MODE_THROW_ENABLED == ENABLED
-        copter.control_mode == THROW ||
+        copter.flightmode->mode_number() == Mode::Number::THROW ||
 #endif
-        copter.control_mode == FLIP) {
+        copter.flightmode->mode_number() == Mode::Number::FLIP) {
         actual_action = MAV_COLLISION_ACTION_NONE;
     }
 
     // if landed and we will take some kind of action, just disarm
     if ((actual_action > MAV_COLLISION_ACTION_REPORT) && copter.should_disarm_on_failsafe()) {
-        copter.arming.disarm();
+        copter.arming.disarm(AP_Arming::Method::ADSBCOLLISIONACTION);
         actual_action = MAV_COLLISION_ACTION_NONE;
     } else {
 
@@ -44,7 +44,7 @@ MAV_COLLISION_ACTION AP_Avoidance_Copter::handle_avoidance(const AP_Avoidance::O
             case MAV_COLLISION_ACTION_RTL:
                 // attempt to switch to RTL, if this fails (i.e. flying in manual mode with bad position) do nothing
                 if (failsafe_state_change) {
-                    if (!copter.set_mode(RTL, MODE_REASON_AVOIDANCE)) {
+                    if (!copter.set_mode(Mode::Number::RTL, ModeReason::AVOIDANCE)) {
                         actual_action = MAV_COLLISION_ACTION_NONE;
                     }
                 }
@@ -53,7 +53,7 @@ MAV_COLLISION_ACTION AP_Avoidance_Copter::handle_avoidance(const AP_Avoidance::O
             case MAV_COLLISION_ACTION_HOVER:
                 // attempt to switch to Loiter, if this fails (i.e. flying in manual mode with bad position) do nothing
                 if (failsafe_state_change) {
-                    if (!copter.set_mode(LOITER, MODE_REASON_AVOIDANCE)) {
+                    if (!copter.set_mode(Mode::Number::LOITER, ModeReason::AVOIDANCE)) {
                         actual_action = MAV_COLLISION_ACTION_NONE;
                     }
                 }
@@ -97,7 +97,7 @@ MAV_COLLISION_ACTION AP_Avoidance_Copter::handle_avoidance(const AP_Avoidance::O
     return actual_action;
 }
 
-void AP_Avoidance_Copter::handle_recovery(uint8_t recovery_action)
+void AP_Avoidance_Copter::handle_recovery(RecoveryAction recovery_action)
 {
     // check we are coming out of failsafe
     if (copter.failsafe.adsb) {
@@ -106,24 +106,24 @@ void AP_Avoidance_Copter::handle_recovery(uint8_t recovery_action)
                                  LogErrorCode::ERROR_RESOLVED);
 
         // restore flight mode if requested and user has not changed mode since
-        if (copter.control_mode_reason == MODE_REASON_AVOIDANCE) {
+        if (copter.control_mode_reason == ModeReason::AVOIDANCE) {
             switch (recovery_action) {
 
-            case AP_AVOIDANCE_RECOVERY_REMAIN_IN_AVOID_ADSB:
+            case RecoveryAction::REMAIN_IN_AVOID_ADSB:
                 // do nothing, we'll stay in the AVOID_ADSB mode which is guided which will loiter forever
                 break;
 
-            case AP_AVOIDANCE_RECOVERY_RESUME_PREVIOUS_FLIGHTMODE:
+            case RecoveryAction::RESUME_PREVIOUS_FLIGHTMODE:
                 set_mode_else_try_RTL_else_LAND(prev_control_mode);
                 break;
 
-            case AP_AVOIDANCE_RECOVERY_RTL:
-                set_mode_else_try_RTL_else_LAND(RTL);
+            case RecoveryAction::RTL:
+                set_mode_else_try_RTL_else_LAND(Mode::Number::RTL);
                 break;
 
-            case AP_AVOIDANCE_RECOVERY_RESUME_IF_AUTO_ELSE_LOITER:
-                if (prev_control_mode == AUTO) {
-                    set_mode_else_try_RTL_else_LAND(AUTO);
+            case RecoveryAction::RESUME_IF_AUTO_ELSE_LOITER:
+                if (prev_control_mode == Mode::Number::AUTO) {
+                    set_mode_else_try_RTL_else_LAND(Mode::Number::AUTO);
                 }
                 break;
 
@@ -134,29 +134,39 @@ void AP_Avoidance_Copter::handle_recovery(uint8_t recovery_action)
     }
 }
 
-void AP_Avoidance_Copter::set_mode_else_try_RTL_else_LAND(control_mode_t mode)
+void AP_Avoidance_Copter::set_mode_else_try_RTL_else_LAND(Mode::Number mode)
 {
-    if (!copter.set_mode(mode, MODE_REASON_AVOIDANCE_RECOVERY)) {
+    if (!copter.set_mode(mode, ModeReason::AVOIDANCE_RECOVERY)) {
         // on failure RTL or LAND
-        if (!copter.set_mode(RTL, MODE_REASON_AVOIDANCE_RECOVERY)) {
-            copter.set_mode(LAND, MODE_REASON_AVOIDANCE_RECOVERY);
+        if (!copter.set_mode(Mode::Number::RTL, ModeReason::AVOIDANCE_RECOVERY)) {
+            copter.set_mode(Mode::Number::LAND, ModeReason::AVOIDANCE_RECOVERY);
         }
     }
+}
+
+int16_t AP_Avoidance_Copter::get_altitude_minimum() const
+{
+#if MODE_RTL_ENABLED == ENABLED
+    // do not descend if below RTL alt
+    return copter.g.rtl_altitude;
+#else
+    return 0;
+#endif
 }
 
 // check flight mode is avoid_adsb
 bool AP_Avoidance_Copter::check_flightmode(bool allow_mode_change)
 {
     // ensure copter is in avoid_adsb mode
-    if (allow_mode_change && copter.control_mode != AVOID_ADSB) {
-        if (!copter.set_mode(AVOID_ADSB, MODE_REASON_AVOIDANCE)) {
+    if (allow_mode_change && copter.flightmode->mode_number() != Mode::Number::AVOID_ADSB) {
+        if (!copter.set_mode(Mode::Number::AVOID_ADSB, ModeReason::AVOIDANCE)) {
             // failed to set mode so exit immediately
             return false;
         }
     }
 
     // check flight mode
-    return (copter.control_mode == AVOID_ADSB);
+    return (copter.flightmode->mode_number() == Mode::Number::AVOID_ADSB);
 }
 
 bool AP_Avoidance_Copter::handle_avoidance_vertical(const AP_Avoidance::Obstacle *obstacle, bool allow_mode_change)
@@ -179,8 +189,8 @@ bool AP_Avoidance_Copter::handle_avoidance_vertical(const AP_Avoidance::Obstacle
         velocity_neu.z = copter.wp_nav->get_default_speed_up();
     } else {
         velocity_neu.z = -copter.wp_nav->get_default_speed_down();
-        // do not descend if below RTL alt
-        if (copter.current_loc.alt < copter.g.rtl_altitude) {
+        // do not descend if below minimum altitude
+        if (copter.current_loc.alt < get_altitude_minimum()) {
             velocity_neu.z = 0.0f;
         }
     }
@@ -238,8 +248,8 @@ bool AP_Avoidance_Copter::handle_avoidance_perpendicular(const AP_Avoidance::Obs
             velocity_neu.z *= copter.wp_nav->get_default_speed_up();
         } else {
             velocity_neu.z *= copter.wp_nav->get_default_speed_down();
-            // do not descend if below RTL alt
-            if (copter.current_loc.alt < copter.g.rtl_altitude) {
+            // do not descend if below minimum altitude
+            if (copter.current_loc.alt < get_altitude_minimum()) {
                 velocity_neu.z = 0.0f;
             }
         }

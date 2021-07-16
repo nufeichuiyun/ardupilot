@@ -24,7 +24,8 @@
 #include <stdarg.h>
 
 #if CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_DISCO || \
-    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BLUE
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BLUE || \
+    CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_VNAV
 
 namespace Linux {
 
@@ -38,11 +39,13 @@ private:
     int open_sbus(const char *path);
     int open_115200(const char *path);
 
-    const char *dev_sbus;
+    const char *dev_inverted;
     const char *dev_115200;
 
-    int fd_sbus;
+    int fd_inverted;
     int fd_115200;
+    uint32_t last_frame_ms;
+    bool inverted_is_115200;
 };
 };
 

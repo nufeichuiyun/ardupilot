@@ -62,6 +62,7 @@ JSBSim::JSBSim(const char *frame_str) :
     }
     control_port = 5505 + instance*10;
     fdm_port = 5504 + instance*10;
+    num_motors = 2;
 
     printf("JSBSim backend started: control_port=%u fdm_port=%u\n",
            control_port, fdm_port);
@@ -254,7 +255,7 @@ bool JSBSim::start_JSBSim(void)
 /*
   check for stdout from JSBSim
  */
-void JSBSim::check_stdout(void)
+void JSBSim::check_stdout(void) const
 {
     char line[100];
     ssize_t ret = ::read(jsbsim_stdout, line, sizeof(line));
@@ -268,7 +269,7 @@ void JSBSim::check_stdout(void)
 /*
   a simple function to wait for a string on jsbsim_stdout
  */
-bool JSBSim::expect(const char *str)
+bool JSBSim::expect(const char *str) const
 {
     const char *basestr = str;
     while (*str) {
@@ -443,8 +444,8 @@ void JSBSim::recv_fdm(const struct sitl_input &input)
     // update magnetic field
     update_mag_field_bf();
     
-    rpm1 = fdm.rpm[0];
-    rpm2 = fdm.rpm[1];
+    rpm[0] = fdm.rpm[0];
+    rpm[1] = fdm.rpm[1];
     
     time_now_us = fdm.cur_time;
 }

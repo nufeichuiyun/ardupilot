@@ -13,12 +13,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/*
- *       AP_MotorsSingle.cpp - ArduCopter motors library
- *       Code by RandyMackay. DIYDrones.com
- *
- */
-
 #include <AP_HAL/AP_HAL.h>
 #include <AP_Math/AP_Math.h>
 #include "AP_MotorsSingle.h"
@@ -43,8 +37,10 @@ void AP_MotorsSingle::init(motor_frame_class frame_class, motor_frame_type frame
         SRV_Channels::set_angle(SRV_Channels::get_motor_function(i), AP_MOTORS_SINGLE_SERVO_INPUT_RANGE);
     }
 
+    _mav_type = MAV_TYPE_COAXIAL;
+
     // record successful initialisation if what we setup was the desired frame_class
-    _flags.initialised_ok = (frame_class == MOTOR_FRAME_SINGLE);
+    set_initialised_ok(frame_class == MOTOR_FRAME_SINGLE);
 }
 
 // set frame class (i.e. quad, hexa, heli) and type (i.e. x, plus)
@@ -67,7 +63,7 @@ void AP_MotorsSingle::set_update_rate(uint16_t speed_hz)
 
 void AP_MotorsSingle::output_to_motors()
 {
-    if (!_flags.initialised_ok) {
+    if (!initialised_ok()) {
         return;
     }
     switch (_spool_state) {
@@ -117,7 +113,7 @@ uint16_t AP_MotorsSingle::get_motor_mask()
         1U << AP_MOTORS_MOT_5 |
         1U << AP_MOTORS_MOT_6;
 
-    uint16_t mask = rc_map_mask(motor_mask);
+    uint16_t mask = motor_mask_to_srv_channel_mask(motor_mask);
 
     // add parent's mask
     mask |= AP_MotorsMulticopter::get_motor_mask();
@@ -181,7 +177,6 @@ void AP_MotorsSingle::output_armed_stabilizing()
 
     // combine roll, pitch and yaw on each actuator
     // front servo
-
     actuator[0] = rp_scale * roll_thrust - yaw_thrust;
     // right servo
     actuator[1] = rp_scale * pitch_thrust - yaw_thrust;
@@ -202,6 +197,8 @@ void AP_MotorsSingle::output_armed_stabilizing()
 
     // calculate the throttle setting for the lift fan
     _thrust_out = throttle_avg_max + thr_adj;
+    // compensation_gain can never be zero
+    _throttle_out = _thrust_out / compensation_gain;
 
     if (is_zero(_thrust_out)) {
         limit.roll = true;

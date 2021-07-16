@@ -31,7 +31,30 @@ void Plane::adjust_altitude_target()
         control_mode == &mode_cruise) {
         return;
     }
-    if (landing.is_flaring()) {
+#if OFFBOARD_GUIDED == ENABLED
+    if (control_mode == &mode_guided && ((guided_state.target_alt_time_ms != 0) || guided_state.target_alt > -0.001 )) { // target_alt now defaults to -1, and _time_ms defaults to zero.
+        // offboard altitude demanded
+        uint32_t now = AP_HAL::millis();
+        float delta = 1e-3f * (now - guided_state.target_alt_time_ms);
+        guided_state.target_alt_time_ms = now;
+        // determine delta accurately as a float
+        float delta_amt_f = delta * guided_state.target_alt_accel;
+        // then scale x100 to match last_target_alt and convert to a signed int32_t as it may be negative
+        int32_t delta_amt_i = (int32_t)(100.0 * delta_amt_f); 
+        Location temp {};
+        temp.alt = guided_state.last_target_alt + delta_amt_i; // ...to avoid floats here, 
+        if (is_positive(guided_state.target_alt_accel)) {
+            temp.alt = MIN(guided_state.target_alt, temp.alt);
+        } else {
+            temp.alt = MAX(guided_state.target_alt, temp.alt);
+        }
+        guided_state.last_target_alt = temp.alt;
+        set_target_altitude_location(temp);
+    } else 
+#endif // OFFBOARD_GUIDED == ENABLED
+      if (control_mode->update_target_altitude()) {
+          // handled in mode specific code
+    } else if (landing.is_flaring()) {
         // during a landing flare, use TECS_LAND_SINK as a target sink
         // rate, and ignores the target altitude
         set_target_altitude_location(next_WP_loc);
@@ -40,6 +63,12 @@ void Plane::adjust_altitude_target()
         landing.adjust_landing_slope_for_rangefinder_bump(rangefinder_state, prev_WP_loc, next_WP_loc, current_loc, auto_state.wp_distance, target_altitude.offset_cm);
     } else if (landing.get_target_altitude_location(target_location)) {
        set_target_altitude_location(target_location);
+#if HAL_SOARING_ENABLED
+    } else if (g2.soaring_controller.is_active() && g2.soaring_controller.get_throttle_suppressed()) {
+       // Reset target alt to current alt, to prevent large altitude errors when gliding.
+       set_target_altitude_location(current_loc);
+       reset_offset_altitude();
+#endif
     } else if (reached_loiter_target()) {
         // once we reach a loiter target then lock to the final
         // altitude target
@@ -108,9 +137,9 @@ void Plane::setup_glide_slope(void)
 }
 
 /*
-  return RTL altitude as AMSL altitude
+  return RTL altitude as AMSL cm
  */
-int32_t Plane::get_RTL_altitude()
+int32_t Plane::get_RTL_altitude_cm() const
 {
     if (g.RTL_altitude_cm < 0) {
         return current_loc.alt;
@@ -126,7 +155,14 @@ float Plane::relative_ground_altitude(bool use_rangefinder_if_available)
 {
    if (use_rangefinder_if_available && rangefinder_state.in_range) {
         return rangefinder_state.height_estimate;
-    }
+   }
+
+   if (use_rangefinder_if_available && quadplane.in_vtol_land_final() &&
+       rangefinder.status_orient(ROTATION_PITCH_270) == RangeFinder::Status::OutOfRangeLow) {
+       // a special case for quadplane landing when rangefinder goes
+       // below minimum. Consider our height above ground to be zero
+       return 0;
+   }
 
 #if AP_TERRAIN_AVAILABLE
     float altitude;
@@ -166,7 +202,7 @@ void Plane::set_target_altitude_current(void)
 #if AP_TERRAIN_AVAILABLE
     // also record the terrain altitude if possible
     float terrain_altitude;
-    if (g.terrain_follow && terrain.height_above_terrain(terrain_altitude, true)) {
+    if (terrain_enabled_in_current_mode() && terrain.height_above_terrain(terrain_altitude, true) && !terrain_disabled()) {
         target_altitude.terrain_following = true;
         target_altitude.terrain_alt_cm = terrain_altitude*100;
     } else {
@@ -255,12 +291,11 @@ void Plane::change_target_altitude(int32_t change_cm)
 {
     target_altitude.amsl_cm += change_cm;
 #if AP_TERRAIN_AVAILABLE
-    if (target_altitude.terrain_following) {
+    if (target_altitude.terrain_following && !terrain_disabled()) {
         target_altitude.terrain_alt_cm += change_cm;
     }
 #endif
 }
-
 /*
   change target altitude by a proportion of the target altitude offset
   (difference in height to next WP from previous WP). proportion
@@ -426,11 +461,11 @@ bool Plane::above_location_current(const Location &loc)
   modify a destination to be setup for terrain following if
   TERRAIN_FOLLOW is enabled
  */
-void Plane::setup_terrain_target_alt(Location &loc)
+void Plane::setup_terrain_target_alt(Location &loc) const
 {
 #if AP_TERRAIN_AVAILABLE
-    if (g.terrain_follow) {
-        loc.terrain_alt = true;
+    if (terrain_enabled_in_current_mode()) {
+        loc.change_alt_frame(Location::AltFrame::ABOVE_TERRAIN);
     }
 #endif
 }
@@ -585,7 +620,7 @@ void Plane::rangefinder_terrain_correction(float &height)
 #if AP_TERRAIN_AVAILABLE
     if (!g.rangefinder_landing ||
         flight_stage != AP_Vehicle::FixedWing::FLIGHT_LAND ||
-        g.terrain_follow == 0) {
+        !terrain_enabled_in_current_mode()) {
         return;
     }
     float terrain_amsl1, terrain_amsl2;
@@ -595,6 +630,7 @@ void Plane::rangefinder_terrain_correction(float &height)
     }
     float correction = (terrain_amsl1 - terrain_amsl2);
     height += correction;
+    auto_state.terrain_correction = correction;
 #endif
 }
 
@@ -605,7 +641,7 @@ void Plane::rangefinder_height_update(void)
 {
     float distance = rangefinder.distance_cm_orient(ROTATION_PITCH_270)*0.01f;
     
-    if ((rangefinder.status_orient(ROTATION_PITCH_270) == RangeFinder::RangeFinder_Good) && ahrs.home_is_set()) {
+    if ((rangefinder.status_orient(ROTATION_PITCH_270) == RangeFinder::Status::Good) && ahrs.home_is_set()) {
         if (!rangefinder_state.have_initial_reading) {
             rangefinder_state.have_initial_reading = true;
             rangefinder_state.initial_range = distance;
@@ -656,7 +692,7 @@ void Plane::rangefinder_height_update(void)
 #if AP_TERRAIN_AVAILABLE
         // if we are terrain following then correction is based on terrain data
         float terrain_altitude;
-        if ((target_altitude.terrain_following || g.terrain_follow) && 
+        if ((target_altitude.terrain_following || terrain_enabled_in_current_mode()) && 
             terrain.height_above_terrain(terrain_altitude, true)) {
             correction = terrain_altitude - rangefinder_state.height_estimate;
         }
@@ -668,7 +704,9 @@ void Plane::rangefinder_height_update(void)
         if (now - rangefinder_state.last_correction_time_ms > 5000) {
             rangefinder_state.correction = correction;
             rangefinder_state.initial_correction = correction;
-            landing.set_initial_slope();
+            if (g.rangefinder_landing) {
+                landing.set_initial_slope();
+            }
             rangefinder_state.last_correction_time_ms = now;
         } else {
             rangefinder_state.correction = 0.8f*rangefinder_state.correction + 0.2f*correction;
@@ -684,3 +722,51 @@ void Plane::rangefinder_height_update(void)
         
     }
 }
+
+/*
+  determine if Non Auto Terrain Disable is active and allowed in present control mode
+ */
+bool Plane::terrain_disabled()
+{
+    return control_mode->allows_terrain_disable() && non_auto_terrain_disable;
+}
+
+
+/*
+  Check if terrain following is enabled for the current mode
+ */
+#if AP_TERRAIN_AVAILABLE
+const Plane::TerrainLookupTable Plane::Terrain_lookup[] = {
+    {Mode::Number::FLY_BY_WIRE_B, terrain_bitmask::FLY_BY_WIRE_B},
+    {Mode::Number::CRUISE, terrain_bitmask::CRUISE},
+    {Mode::Number::AUTO, terrain_bitmask::AUTO},
+    {Mode::Number::RTL, terrain_bitmask::RTL},
+    {Mode::Number::AVOID_ADSB, terrain_bitmask::AVOID_ADSB},
+    {Mode::Number::GUIDED, terrain_bitmask::GUIDED},
+    {Mode::Number::LOITER, terrain_bitmask::LOITER},
+    {Mode::Number::CIRCLE, terrain_bitmask::CIRCLE},
+    {Mode::Number::QRTL, terrain_bitmask::QRTL},
+    {Mode::Number::QLAND, terrain_bitmask::QLAND},
+    {Mode::Number::QLOITER, terrain_bitmask::QLOITER},
+};
+
+bool Plane::terrain_enabled_in_current_mode() const
+{
+    // Global enable
+    if ((g.terrain_follow.get() & int32_t(terrain_bitmask::ALL)) != 0) {
+        return true;
+    }
+
+    // Specific enable
+    for (const struct TerrainLookupTable entry : Terrain_lookup) {
+        if (entry.mode_num == control_mode->mode_number()) {
+            if ((g.terrain_follow.get() & int32_t(entry.bitmask)) != 0) {
+                return true;
+            }
+            break;
+        }
+    }
+
+    return false;
+}
+#endif

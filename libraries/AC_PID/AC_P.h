@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file	AC_PD.h
-/// @brief	Generic PID algorithm, with EEPROM-backed storage of constants.
+/// @brief	Generic P controller with EEPROM-backed storage of constants.
 
 #include <AP_Common/AP_Common.h>
 #include <AP_Param/AP_Param.h>
@@ -25,6 +25,8 @@ public:
 		AP_Param::setup_object_defaults(this, var_info);
         _kp = initial_p;
     }
+
+    CLASS_NO_COPY(AC_P);
 
     /// Iterate the P controller, return the new control value
     ///

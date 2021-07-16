@@ -60,13 +60,13 @@ public:
         k_param_sysid_my_gcs,
 
         // Hardware/Software configuration
-        k_param_BoardConfig = 20, // Board configuration (PX4/Linux/etc)
+        k_param_BoardConfig = 20, // Board configuration (Pixhawk/Linux/etc)
         k_param_scheduler, // Scheduler (for debugging/perf_info)
         k_param_logger, // AP_Logger Logging
         k_param_serial_manager, // Serial ports, AP_SerialManager
         k_param_notify, // Notify Library, AP_Notify
         k_param_arming = 26, // Arming checks
-        k_param_BoardConfig_CAN,
+        k_param_can_mgr,
 
         // Sensor objects
         k_param_ins = 30, // AP_InertialSensor
@@ -186,7 +186,7 @@ public:
         k_param_gcs_pid_mask = 178,
         k_param_throttle_filt,
         k_param_throttle_deadzone, // Used in auto-throttle modes
-        k_param_terrain_follow = 182,
+        k_param_terrain_follow = 182,   // deprecated
         k_param_rc_feel_rp,
         k_param_throttle_gain,
         k_param_cam_tilt_center, // deprecated
@@ -206,10 +206,15 @@ public:
         // RC_Mapper Library
         k_param_rcmap, // Disabled
 
+        k_param_gcs4,
+        k_param_gcs5,
+        k_param_gcs6,
+
         k_param_cam_slew_limit = 237, // deprecated
         k_param_lights_steps,
         k_param_pilot_speed_dn,
 
+        k_param_vehicle = 257, // vehicle common block of parameters
     };
 
     AP_Int16        format_version;
@@ -258,10 +263,6 @@ public:
     AP_Int8         fs_crash_check;
     AP_Float        fs_ekf_thresh;
     AP_Int16        gcs_pid_mask;
-
-#if AP_TERRAIN_AVAILABLE && AC_TERRAIN
-    AP_Int8         terrain_follow;
-#endif
 
     AP_Int16        rc_speed; // speed of fast RC Channels in Hz
 
@@ -323,7 +324,7 @@ public:
     AP_Gripper gripper;
 #endif
 
-#if PROXIMITY_ENABLED == ENABLED
+#if HAL_PROXIMITY_ENABLED
     // proximity (aka object avoidance) library
     AP_Proximity proximity;
 #endif
@@ -337,6 +338,9 @@ public:
 #ifdef ENABLE_SCRIPTING
     AP_Scripting scripting;
 #endif // ENABLE_SCRIPTING
+
+    // Airspeed
+    AP_Airspeed airspeed;
 
 };
 

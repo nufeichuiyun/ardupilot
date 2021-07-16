@@ -51,6 +51,15 @@ AP_GPS_NOVA::AP_GPS_NOVA(AP_GPS &_gps, AP_GPS::GPS_State &_state,
     port->write((const uint8_t*)init_str1, strlen(init_str1));
 }
 
+const char* const AP_GPS_NOVA::_initialisation_blob[6] {
+    "\r\n\r\nunlogall\r\n", // cleanup enviroment
+    "log bestposb ontime 0.2 0 nohold\r\n", // get bestpos
+    "log bestvelb ontime 0.2 0 nohold\r\n", // get bestvel
+    "log psrdopb onchanged\r\n", // tersus
+    "log psrdopb ontime 0.2\r\n", // comnav
+    "log psrdopb\r\n" // poll message, as dop only changes when a sat is dropped/added to the visible list
+};
+
 // Process all bytes available from the stream
 //
 bool
@@ -279,17 +288,6 @@ AP_GPS_NOVA::process_message(void)
     }
     
     return false;
-}
-
-void
-AP_GPS_NOVA::inject_data(const uint8_t *data, uint16_t len)
-{
-    if (port->txspace() > len) {
-        last_injected_data_ms = AP_HAL::millis();
-        port->write(data, len);
-    } else {
-        Debug("NOVA: Not enough TXSPACE");
-    }
 }
 
 #define CRC32_POLYNOMIAL 0xEDB88320L

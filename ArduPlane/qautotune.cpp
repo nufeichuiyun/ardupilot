@@ -41,25 +41,15 @@ void QAutoTune::get_pilot_desired_rp_yrate_cd(float &des_roll_cd, float &des_pit
 
 void QAutoTune::init_z_limits()
 {
-    plane.quadplane.pos_control->set_max_speed_z(-plane.quadplane.pilot_velocity_z_max, plane.quadplane.pilot_velocity_z_max);
-    plane.quadplane.pos_control->set_max_accel_z(plane.quadplane.pilot_accel_z);
+    // set vertical speed and acceleration limits
+    plane.quadplane.pos_control->set_max_speed_accel_z(-plane.quadplane.get_pilot_velocity_z_max_dn(),
+        plane.quadplane.pilot_velocity_z_max_up,
+        plane.quadplane.pilot_accel_z);
+    plane.quadplane.pos_control->set_correction_speed_accel_z(-plane.quadplane.get_pilot_velocity_z_max_dn(),
+        plane.quadplane.pilot_velocity_z_max_up,
+        plane.quadplane.pilot_accel_z);
 }
 
-
-// Wrote an event packet
-void QAutoTune::Log_Write_Event(enum at_event id)
-{
-    // offset of 30 aligned with ArduCopter autotune events
-    uint8_t ev_id = 30 + (uint8_t)id;
-    AP::logger().Write(
-        "EVT",
-        "TimeUS,Id",
-        "s-",
-        "F-",
-        "QB",
-        AP_HAL::micros64(),
-        ev_id);
-}
 
 // log VTOL PIDs for during twitch
 void QAutoTune::log_pids(void)

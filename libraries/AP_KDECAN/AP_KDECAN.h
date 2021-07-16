@@ -20,17 +20,21 @@
  
 #pragma once
 
-#include <AP_HAL/CAN.h>
+#include <AP_CANManager/AP_CANDriver.h>
+
+#if HAL_MAX_CAN_PROTOCOL_DRIVERS
+
 #include <AP_HAL/Semaphores.h>
 
 #include <AP_Param/AP_Param.h>
+#include <AP_ESC_Telem/AP_ESC_Telem_Backend.h>
 
 #include <atomic>
 
 // there are 12 motor functions in SRV_Channel but CAN driver can't keep up
 #define KDECAN_MAX_NUM_ESCS 8
 
-class AP_KDECAN : public AP_HAL::CANProtocol {
+class AP_KDECAN : public AP_CANDriver, public AP_ESC_Telem_Backend {
 public:
     AP_KDECAN();
     
@@ -44,15 +48,13 @@ public:
     static AP_KDECAN *get_kdecan(uint8_t driver_index);
 
     void init(uint8_t driver_index, bool enable_filters) override;
+    bool add_interface(AP_HAL::CANIface* can_iface) override;
 
     // called from SRV_Channels
     void update();
     
     // check that arming can happen
-    bool pre_arm_check(const char* &reason);
-
-    // send MAVLink telemetry packets
-    void send_mavlink(uint8_t chan);
+    bool pre_arm_check(char* reason, uint8_t reason_len);
 
     // caller checks that vehicle isn't armed
     // start_stop: true to start, false to stop
@@ -62,9 +64,10 @@ private:
     void loop();
 
     bool _initialized;
-    char _thread_name[9];
+    char _thread_name[11];
     uint8_t _driver_index;
-    uavcan::ICanDriver* _can_driver;
+    AP_HAL::CANIface* _can_iface;
+    HAL_EventHandle _event_handle;
 
     AP_Int8 _num_poles;
 
@@ -86,20 +89,8 @@ private:
     std::atomic<bool> _new_output;
     uint16_t _scaled_output[KDECAN_MAX_NUM_ESCS];
 
-    // telemetry input
-    HAL_Semaphore _telem_sem;
-    struct telemetry_info_t {
-        uint64_t time;
-        uint16_t voltage;
-        uint16_t current;
-        uint16_t rpm;
-        uint8_t temp;
-        bool new_data;
-    } _telemetry[KDECAN_MAX_NUM_ESCS];
-
-
     union frame_id_t {
-        struct {
+        struct PACKED {
             uint8_t object_address;
             uint8_t destination_id;
             uint8_t source_id;
@@ -132,6 +123,5 @@ private:
     static const uint32_t SET_PWM_TIMEOUT_US = 2000;
     static const uint16_t TELEMETRY_TIMEOUT_US = 500;
     static const uint16_t ENUMERATION_TIMEOUT_MS = 30000;
-
-    static const uint8_t CAN_IFACE_INDEX = 0;
 };
+#endif //HAL_NUM_CAN_IFACES

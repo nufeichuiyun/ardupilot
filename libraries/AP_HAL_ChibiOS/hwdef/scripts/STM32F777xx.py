@@ -26,16 +26,23 @@ pincount = {
 
 # MCU parameters
 mcu = {
-    # location of MCU serial number
-    'UDID_START' : 0x1FF0F420,
-
     # ram map, as list of (address, size-kb, flags)
     # flags of 1 means DMA-capable
     # flags of 2 means faster memory for CPU intensive work
     'RAM_MAP' : [
         (0x20020000, 384, 0), # SRAM1/SRAM2
         (0x20000000, 128, 1), # DTCM, DMA
-    ]
+    ],
+
+    'EXPECTED_CLOCK' : 216000000,
+
+    # this MCU has M7 instructions and hardware double precision
+    'CORTEX'    : 'cortex-m7',
+    'CPU_FLAGS' : '-mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard',
+
+    'DEFINES' : {
+        'HAL_HAVE_HARDWARE_DOUBLE' : '1'
+    }
 }
 
 DMA_Map = {
@@ -362,7 +369,7 @@ AltFunction_map = {
 	"PB7:EVENTOUT"      	:	15,
 	"PB7:FMC_NL"        	:	12,
 	"PB7:I2C1_SDA"      	:	4,
-	"PB7:I2S4_SDA"      	:	11,
+	"PB7:I2C4_SDA"      	:	11,
 	"PB7:TIM4_CH2"      	:	2,
 	"PB7:USART1_RX"     	:	7,
 	"PB8:CAN1_RX"       	:	9,

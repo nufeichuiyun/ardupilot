@@ -13,11 +13,6 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/*
- *       AP_MotorsHeli.cpp - ArduCopter motors library
- *       Code by RandyMackay. DIYDrones.com
- *
- */
 #include <stdlib.h>
 #include <AP_HAL/AP_HAL.h>
 #include "AP_MotorsHeli.h"
@@ -32,7 +27,7 @@ const AP_Param::GroupInfo AP_MotorsHeli::var_info[] = {
     // 2 was PIT_MAX which has been replaced by CYC_MAX
 
     // @Param: COL_MIN
-    // @DisplayName: Collective Pitch Minimum
+    // @DisplayName: Minimum Collective Pitch
     // @Description: Lowest possible servo position in PWM microseconds for the swashplate
     // @Range: 1000 2000
     // @Units: PWM
@@ -41,7 +36,7 @@ const AP_Param::GroupInfo AP_MotorsHeli::var_info[] = {
     AP_GROUPINFO("COL_MIN", 3, AP_MotorsHeli, _collective_min, AP_MOTORS_HELI_COLLECTIVE_MIN),
 
     // @Param: COL_MAX
-    // @DisplayName: Collective Pitch Maximum
+    // @DisplayName: Maximum Collective Pitch
     // @Description: Highest possible servo position in PWM microseconds for the swashplate
     // @Range: 1000 2000
     // @Units: PWM
@@ -50,7 +45,7 @@ const AP_Param::GroupInfo AP_MotorsHeli::var_info[] = {
     AP_GROUPINFO("COL_MAX", 4, AP_MotorsHeli, _collective_max, AP_MOTORS_HELI_COLLECTIVE_MAX),
 
     // @Param: COL_MID
-    // @DisplayName: Collective Pitch Mid-Point
+    // @DisplayName: Zero-Thrust Collective Pitch 
     // @Description: Swash servo position in PWM microseconds corresponding to zero collective pitch (or zero lift for Asymmetrical blades)
     // @Range: 1000 2000
     // @Units: PWM
@@ -60,7 +55,7 @@ const AP_Param::GroupInfo AP_MotorsHeli::var_info[] = {
 
     // @Param: SV_MAN
     // @DisplayName: Manual Servo Mode
-    // @Description: Manual servo override for swash set-up. Do not set this manually!
+    // @Description: Manual servo override for swash set-up. Must be 0 (Disabled) for flight!
     // @Values: 0:Disabled,1:Passthrough,2:Max collective,3:Mid collective,4:Min collective
     // @User: Standard
     AP_GROUPINFO("SV_MAN",  6, AP_MotorsHeli, _servo_mode, SERVO_CONTROL_MODE_AUTOMATED),
@@ -76,12 +71,11 @@ const AP_Param::GroupInfo AP_MotorsHeli::var_info[] = {
     // index 15 was RSC_POWER_HIGH. Do not use this index in the future.
 
     // @Param: CYC_MAX
-    // @DisplayName: Cyclic Pitch Angle Max
-    // @Description: Maximum pitch angle of the swash plate
-    // @Range: 0 18000
-    // @Units: cdeg
+    // @DisplayName: Maximum Cyclic Pitch Angle
+    // @Description: Maximum cyclic pitch angle of the swash plate.  There are no units to this parameter.  This should be adjusted to get the desired cyclic blade pitch for the pitch and roll axes.  Typically this should be 6-7 deg (measured blade pitch angle difference between stick centered and stick max deflection.
+    // @Range: 0 4500
     // @Increment: 100
-    // @User: Advanced
+    // @User: Standard
     AP_GROUPINFO("CYC_MAX", 16, AP_MotorsHeli, _cyclic_max, AP_MOTORS_HELI_SWASH_CYCLIC_MAX),
 
     // @Param: SV_TEST
@@ -101,6 +95,27 @@ const AP_Param::GroupInfo AP_MotorsHeli::var_info[] = {
     // @Group: RSC_
     // @Path: AP_MotorsHeli_RSC.cpp
     AP_SUBGROUPINFO(_main_rotor, "RSC_", 25, AP_MotorsHeli, AP_MotorsHeli_RSC),
+
+    // @Param: COLL_HOVER
+    // @DisplayName: Collective Hover Value
+    // @Description: Collective needed to hover expressed as a number from 0 to 1 where 0 is H_COL_MIN and 1 is H_COL_MAX
+    // @Range: 0.3 0.8
+    // @User: Advanced
+    AP_GROUPINFO("COLL_HOVER", 26, AP_MotorsHeli, _collective_hover, AP_MOTORS_HELI_COLLECTIVE_HOVER_DEFAULT),
+
+    // @Param: HOVER_LEARN
+    // @DisplayName: Hover Value Learning
+    // @Description: Enable/Disable automatic learning of hover collective
+    // @Values: 0:Disabled, 1:Learn, 2:Learn and Save
+    // @User: Advanced
+    AP_GROUPINFO("HOVER_LEARN", 27, AP_MotorsHeli, _collective_hover_learn, HOVER_LEARN_AND_SAVE),
+
+    // @Param: OPTIONS
+    // @DisplayName: Heli_Options
+    // @Description: Bitmask of heli options.  Bit 0 changes how the pitch, roll, and yaw axis integrator term is managed for low speed and takeoff/landing. In AC 4.0 and earlier, scheme uses a leaky integrator for ground speeds less than 5 m/s and won't let the steady state integrator build above ILMI. The integrator is allowed to build to the ILMI value when it is landed.  The other integrator management scheme bases integrator limiting on takeoff and landing.  Whenever the aircraft is landed the integrator is set to zero.  When the aicraft is airborne, the integrator is only limited by IMAX. 
+    // @Bitmask: 0:Use Leaky I
+    // @User: Standard
+    AP_GROUPINFO("OPTIONS", 28, AP_MotorsHeli, _heli_options, (uint8_t)HeliOption::USE_LEAKY_I),
 
     AP_GROUPEND
 };
@@ -138,17 +153,18 @@ void AP_MotorsHeli::init(motor_frame_class frame_class, motor_frame_type frame_t
     calculate_scalars();
 
     // record successful initialisation if what we setup was the desired frame_class
-    _flags.initialised_ok = (frame_class == MOTOR_FRAME_HELI);
+    set_initialised_ok(frame_class == MOTOR_FRAME_HELI);
 
     // set flag to true so targets are initialized once aircraft is armed for first time
     _heliflags.init_targets_on_arming = true;
 
+    _mav_type = MAV_TYPE_HELICOPTER;
 }
 
 // set frame class (i.e. quad, hexa, heli) and type (i.e. x, plus)
 void AP_MotorsHeli::set_frame_class_and_type(motor_frame_class frame_class, motor_frame_type frame_type)
 {
-    _flags.initialised_ok = (frame_class == MOTOR_FRAME_HELI);
+    set_initialised_ok(frame_class == MOTOR_FRAME_HELI);
 }
 
 // output_min - sets servos to neutral point with motors stopped
@@ -160,9 +176,7 @@ void AP_MotorsHeli::output_min()
     update_motor_control(ROTOR_CONTROL_STOP);
 
     // override limits flags
-    limit.roll = true;
-    limit.pitch = true;
-    limit.yaw = true;
+    set_limit_flag_pitch_roll_yaw(true);
     limit.throttle_lower = true;
     limit.throttle_upper = false;
 }
@@ -176,9 +190,11 @@ void AP_MotorsHeli::output()
     // run spool logic
     output_logic();
 
-    if (_flags.armed) {
+    if (armed()) {
+        // block servo_test from happening at disarm
+        _servo_test_cycle_counter = 0;
         calculate_armed_scalars();
-        if (!_flags.interlock) {
+        if (!get_interlock()) {
             output_armed_zero_throttle();
         } else {
             output_armed_stabilizing();
@@ -217,9 +233,13 @@ void AP_MotorsHeli::output_armed_zero_throttle()
 void AP_MotorsHeli::output_disarmed()
 {
     if (_servo_test_cycle_counter > 0){
+        // set servo_test_flag
+        _heliflags.servo_test_running = true;
         // perform boot-up servo test cycle if enabled
         servo_test();
     } else {
+        // set servo_test flag
+        _heliflags.servo_test_running = false;
         // manual override (i.e. when setting up swash)
         switch (_servo_mode) {
             case SERVO_CONTROL_MODE_MANUAL_PASSTHROUGH:
@@ -284,8 +304,8 @@ void AP_MotorsHeli::output_disarmed()
 void AP_MotorsHeli::output_logic()
 {
     // force desired and current spool mode if disarmed and armed with interlock enabled
-    if (_flags.armed) {
-        if (!_flags.interlock) {
+    if (armed()) {
+        if (!get_interlock()) {
             _spool_desired = DesiredSpoolState::GROUND_IDLE;
         } else {
             _heliflags.init_targets_on_arming = false;
@@ -301,6 +321,13 @@ void AP_MotorsHeli::output_logic()
             // Motors should be stationary.
             // Servos set to their trim values or in a test condition.
 
+            // set limits flags
+            if (!using_leaky_integrator()) {
+                set_limit_flag_pitch_roll_yaw(true);
+            } else {
+                set_limit_flag_pitch_roll_yaw(false);
+            }
+
             // make sure the motors are spooling in the correct direction
             if (_spool_desired != DesiredSpoolState::SHUT_DOWN) {
                 _spool_state = SpoolState::GROUND_IDLE;
@@ -311,6 +338,13 @@ void AP_MotorsHeli::output_logic()
 
         case SpoolState::GROUND_IDLE: {
             // Motors should be stationary or at ground idle.
+            // set limits flags
+            if (_heliflags.land_complete && !using_leaky_integrator()) {
+                set_limit_flag_pitch_roll_yaw(true);
+            } else {
+                set_limit_flag_pitch_roll_yaw(false);
+            }
+
             // Servos should be moving to correct the current attitude.
             if (_spool_desired == DesiredSpoolState::SHUT_DOWN){
                 _spool_state = SpoolState::SHUT_DOWN;
@@ -325,6 +359,13 @@ void AP_MotorsHeli::output_logic()
         case SpoolState::SPOOLING_UP:
             // Maximum throttle should move from minimum to maximum.
             // Servos should exhibit normal flight behavior.
+
+            // set limits flags
+            if (_heliflags.land_complete && !using_leaky_integrator()) {
+                set_limit_flag_pitch_roll_yaw(true);
+            } else {
+                set_limit_flag_pitch_roll_yaw(false);
+            }
 
             // make sure the motors are spooling in the correct direction
             if (_spool_desired != DesiredSpoolState::THROTTLE_UNLIMITED ){
@@ -341,6 +382,13 @@ void AP_MotorsHeli::output_logic()
             // Throttle should exhibit normal flight behavior.
             // Servos should exhibit normal flight behavior.
 
+            // set limits flags
+            if (_heliflags.land_complete && !using_leaky_integrator()) {
+                set_limit_flag_pitch_roll_yaw(true);
+            } else {
+                set_limit_flag_pitch_roll_yaw(false);
+            }
+
             // make sure the motors are spooling in the correct direction
             if (_spool_desired != DesiredSpoolState::THROTTLE_UNLIMITED) {
                 _spool_state = SpoolState::SPOOLING_DOWN;
@@ -353,6 +401,13 @@ void AP_MotorsHeli::output_logic()
         case SpoolState::SPOOLING_DOWN:
             // Maximum throttle should move from maximum to minimum.
             // Servos should exhibit normal flight behavior.
+
+            // set limits flags
+            if (_heliflags.land_complete && !using_leaky_integrator()) {
+                set_limit_flag_pitch_roll_yaw(true);
+            } else {
+                set_limit_flag_pitch_roll_yaw(false);
+            }
 
             // make sure the motors are spooling in the correct direction
             if (_spool_desired == DesiredSpoolState::THROTTLE_UNLIMITED) {
@@ -454,5 +509,46 @@ void AP_MotorsHeli::rc_write_swash(uint8_t chan, float swash_in)
     uint16_t pwm = (uint16_t)(1500 + 500 * swash_in);
     SRV_Channel::Aux_servo_function_t function = SRV_Channels::get_motor_function(chan);
     SRV_Channels::set_output_pwm_trimmed(function, pwm);
+}
+
+// update the collective input filter.  should be called at 100hz
+void AP_MotorsHeli::update_throttle_hover(float dt)
+{
+    if (_collective_hover_learn != HOVER_LEARN_DISABLED) {
+
+        // Don't let _collective_hover go below H_COLL_MID
+        float curr_collective = get_throttle();
+        if (curr_collective < _collective_mid_pct) {
+            curr_collective = _collective_mid_pct;
+        }
+
+        // we have chosen to constrain the hover collective to be within the range reachable by the third order expo polynomial.
+        _collective_hover = constrain_float(_collective_hover + (dt / (dt + AP_MOTORS_HELI_COLLECTIVE_HOVER_TC)) * (curr_collective - _collective_hover), AP_MOTORS_HELI_COLLECTIVE_HOVER_MIN, AP_MOTORS_HELI_COLLECTIVE_HOVER_MAX);
+    }
+}
+
+// save parameters as part of disarming
+void AP_MotorsHeli::save_params_on_disarm()
+{
+    // save hover throttle
+    if (_collective_hover_learn == HOVER_LEARN_AND_SAVE) {
+        _collective_hover.save();
+    }
+}
+
+// updates the takeoff collective flag
+void AP_MotorsHeli::update_takeoff_collective_flag(float coll_out)
+{
+    if (coll_out > _collective_mid_pct + 0.5f * (_collective_hover - _collective_mid_pct)) {
+        _heliflags.takeoff_collective = true;
+    } else {
+        _heliflags.takeoff_collective = false;
+    }
+}
+
+// Determines if _heli_options bit is set
+bool AP_MotorsHeli::heli_option(HeliOption opt) const
+{
+    return (_heli_options & (uint8_t)opt);
 }
 

@@ -8,7 +8,7 @@
 #include <SRV_Channel/SRV_Channel.h>
 
 #include "AP_Volz_Protocol.h"
-
+#if NUM_SERVO_CHANNELS
 extern const AP_HAL::HAL& hal;
 
 const AP_Param::GroupInfo AP_Volz_Protocol::var_info[] = {
@@ -73,15 +73,15 @@ void AP_Volz_Protocol::update()
             }
             
             // check if current channel PWM is within range
-            if (c->get_output_pwm() < c->get_output_min()) {
+            if (c->get_output_pwm() < VOLZ_PWM_POSITION_MIN) {
                 value = 0;
             } else {
-                value = c->get_output_pwm() - c->get_output_min();
+                value = c->get_output_pwm() - VOLZ_PWM_POSITION_MIN;
             }
 
             // scale the PWM value to Volz value
+            value = value * VOLZ_SCALE_VALUE / (VOLZ_PWM_POSITION_MAX - VOLZ_PWM_POSITION_MIN);
             value = value + VOLZ_EXTENDED_POSITION_MIN;
-            value = value * VOLZ_SCALE_VALUE / (c->get_output_max() - c->get_output_min());
 
             // make sure value stays in range
             if (value > VOLZ_EXTENDED_POSITION_MAX) {
@@ -155,3 +155,4 @@ void AP_Volz_Protocol::update_volz_bitmask(uint32_t new_bitmask)
 
     volz_time_frame_micros = channels_micros;
 }
+#endif //NUM_SERVO_CHANNELS
