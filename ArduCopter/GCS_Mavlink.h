@@ -45,6 +45,8 @@ protected:
     void handle_mount_message(const mavlink_message_t &msg) override;
 #endif
 
+    void handle_nfcy_test_mavlink(const mavlink_message_t &msg) override;
+
     void handle_landing_target(const mavlink_landing_target_t &packet, uint32_t timestamp_ms) override;
 
     bool set_home_to_current_location(bool lock) override WARN_IF_UNUSED;
@@ -82,6 +84,8 @@ private:
     float vfr_hud_alt() const override;
 
     void send_pid_tuning() override;
+
+    void send_nfcy_test_mavlink() const;
 
 #if AP_WINCH_ENABLED
     void send_winch_status() const override;

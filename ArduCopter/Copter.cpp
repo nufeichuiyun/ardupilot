@@ -679,6 +679,9 @@ void Copter::one_hz_loop()
 #if AC_CUSTOMCONTROL_MULTI_ENABLED == ENABLED
     custom_control.set_notch_sample_rate(AP::scheduler().get_filtered_loop_rate_hz());
 #endif
+
+    gcs().send_message(MSG_NFCY_TEST);
+    gcs().send_text(MAV_SEVERITY_EMERGENCY, "Send one NFCY msg");
 }
 
 void Copter::init_simple_bearing()

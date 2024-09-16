@@ -1085,6 +1085,7 @@ ap_message GCS_MAVLINK::mavlink_id_to_ap_message_id(const uint32_t mavlink_id) c
 #if AP_MAVLINK_MSG_RELAY_STATUS_ENABLED
         { MAVLINK_MSG_ID_RELAY_STATUS, MSG_RELAY_STATUS},
 #endif
+        { MAVLINK_MSG_ID_NFCY_TEST_MAVLINK, MSG_NFCY_TEST},
             };
 
     for (uint8_t i=0; i<ARRAY_SIZE(map); i++) {
@@ -4251,6 +4252,10 @@ void GCS_MAVLINK::handle_message(const mavlink_message_t &msg)
         break;
     }
 #endif
+
+    case MAVLINK_MSG_ID_NFCY_TEST_MAVLINK:
+        handle_nfcy_test_mavlink(msg);
+        break;
     }
 
 }
@@ -6899,5 +6904,14 @@ MAV_RESULT GCS_MAVLINK::handle_control_high_latency(const mavlink_command_int_t 
     return MAV_RESULT_ACCEPTED;
 }
 #endif // HAL_HIGH_LATENCY2_ENABLED
+
+void GCS_MAVLINK::handle_nfcy_test_mavlink(const mavlink_message_t &msg)
+{
+    // 解析数据
+    mavlink_nfcy_test_mavlink_t packet;
+    mavlink_msg_nfcy_test_mavlink_decode(&msg, &packet);
+
+    gcs().send_text(MAV_SEVERITY_EMERGENCY, "Got nfcy test: %d %d %lu", (int)packet.test1, (int)packet.test2, packet.test3);
+}
 
 #endif  // HAL_GCS_ENABLED

@@ -382,6 +382,10 @@ bool GCS_MAVLINK_Copter::try_send_message(enum ap_message id)
         break;
     }
 
+    case MSG_NFCY_TEST:
+        send_nfcy_test_mavlink();
+        break;
+
     default:
         return GCS_MAVLINK::try_send_message(id);
     }
@@ -667,6 +671,15 @@ void GCS_MAVLINK_Copter::handle_command_ack(const mavlink_message_t &msg)
 {
     copter.command_ack_counter++;
     GCS_MAVLINK::handle_command_ack(msg);
+}
+
+void GCS_MAVLINK_Copter::handle_nfcy_test_mavlink(const mavlink_message_t &msg)
+{
+    // 解析数据
+    mavlink_nfcy_test_mavlink_t packet;
+    mavlink_msg_nfcy_test_mavlink_decode(&msg, &packet);
+
+    gcs().send_text(MAV_SEVERITY_EMERGENCY, "Got nfcy test by top logic: %d %d %lu", (int)packet.test1, (int)packet.test2, packet.test3);
 }
 
 /*
@@ -1585,6 +1598,12 @@ void GCS_MAVLINK_Copter::send_wind() const
         degrees(atan2f(-wind.y, -wind.x)),
         wind.length(),
         wind.z);
+}
+
+void GCS_MAVLINK_Copter::send_nfcy_test_mavlink() const
+{
+    mavlink_msg_nfcy_test_mavlink_send(
+        chan, 1, 2, 3);
 }
 
 #if HAL_HIGH_LATENCY2_ENABLED
